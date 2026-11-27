@@ -3,6 +3,7 @@
  * Writes send the idempotency key as a header, not a body field.
  */
 
+import { TASK_KINDS } from '@convex/_lib/designGate';
 import {
   API_PAGE_MAX,
   LIVE_TASK_STATUSES,
@@ -22,6 +23,7 @@ const cursor = z.string().min(1).max(2000).optional();
 const idempotencyKey = z.string().min(1).max(200);
 const stage = z.enum(TASK_STAGES);
 const status = z.enum(LIVE_TASK_STATUSES);
+const taskKind = z.enum(TASK_KINDS);
 /** Statuses a bot may set. Building is claimed by the runner. Shipped is set later, when the tasks are Done. */
 const settableMilestoneStatuses = MILESTONE_STATUSES.filter((value) => value !== 'Shipped' && value !== 'Building') as [
   string,
@@ -157,7 +159,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'create_task',
     description:
-      'Create one task inside an existing milestone through the staff task path. To start new work, use create_milestone with proposedTasks instead. milestoneId is required: a task only exists inside a milestone on the same project, and a Shipped milestone takes no new tasks. It is stored in the Portal only, like a staff add: no Notion page and no outbox row, so it is on the milestone as soon as this returns. The result has its task id. Send an idempotency key. Retries with the same key replay the first result.',
+      'Create one task inside an existing milestone through the staff task path. kind is design or build (default build): a design task works in Figma, and on a milestone with any design task the runner holds build tasks until Peter approves the designs. To start new work, use create_milestone with proposedTasks instead. milestoneId is required: a task only exists inside a milestone on the same project, and a Shipped milestone takes no new tasks. It is stored in the Portal only, like a staff add: no Notion page and no outbox row, so it is on the milestone as soon as this returns. The result has its task id. Send an idempotency key. Retries with the same key replay the first result.',
     write: true,
     schema: {
       projectId: z.string().min(1),
@@ -166,6 +168,7 @@ export const portalTools: PortalTool[] = [
       date: z.string().min(1).max(40).optional(),
       stage: stage.optional(),
       milestoneId: z.string().min(1),
+      kind: taskKind.optional(),
       idempotencyKey,
     },
     call: (args) => ({
@@ -179,13 +182,14 @@ export const portalTools: PortalTool[] = [
         date: args.date,
         stage: args.stage,
         milestoneId: args.milestoneId,
+        kind: args.kind,
       }),
     }),
   },
   {
     name: 'update_task',
     description:
-      'Update task status, priority, next action, or stage through the staff update path. Last write wins per field. Stage Shipped is allowed when the task has a pull request link and GitHub shows that pull request merged into main. The check runs on this write. Send lastEditedTime from get_task as expectedLastEditedTime and an idempotency key. Leave it out when get_task shows portalOwned true or lastEditedTime null (a Portal-only task). A Portal-only task has no Notion edit time, so any expectedLastEditedTime sent for it is ignored.',
+      'Update task status, priority, next action, stage, or kind (design or build, milestone tasks only, Portal only) through the staff update path. Last write wins per field. Stage Shipped is allowed when the task has a pull request link and GitHub shows that pull request merged into main. The check runs on this write. Send lastEditedTime from get_task as expectedLastEditedTime and an idempotency key. Leave it out when get_task shows portalOwned true or lastEditedTime null (a Portal-only task). A Portal-only task has no Notion edit time, so any expectedLastEditedTime sent for it is ignored.',
     write: true,
     schema: {
       taskId: z.string().min(1),
@@ -195,6 +199,7 @@ export const portalTools: PortalTool[] = [
       nextAction: z.string().max(500).nullable().optional(),
       stage: stage.optional(),
       pullRequestLink: z.string().min(1).optional(),
+      kind: taskKind.optional(),
       idempotencyKey,
     },
     call: (args) => ({
@@ -209,6 +214,7 @@ export const portalTools: PortalTool[] = [
         nextAction: args.nextAction,
         stage: args.stage,
         pullRequestLink: args.pullRequestLink,
+        kind: args.kind,
       }),
     }),
   },
@@ -391,7 +397,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'create_milestone',
     description:
-      'Create a milestone and its task list in one call. Call list_milestones first and reuse a matching milestone instead of making a second one. Read the brief and propose 3 to 10 concrete tasks in proposedTasks, each one a piece of work a developer can finish and check, in the order they should be done. It starts at Planning. A status you send is kept, except Building and Shipped, which cannot be sent on create. The objective is at most 2000 characters. It stays unpublished. The tasks are stored in the Portal only and are not sent to Notion. Where it was created is taken from the token name. Send an idempotency key. Retries with the same key replay the first result.',
+      'Create a milestone and its task list in one call. Call list_milestones first and reuse a matching milestone instead of making a second one. Read the brief and propose 3 to 10 concrete tasks in proposedTasks, each one a piece of work a developer can finish and check, in the order they should be done. Give each task a kind: design when it changes what people see (it comes first and works in Figma), otherwise build (the default). It starts at Planning. A status you send is kept, except Building and Shipped, which cannot be sent on create. The objective is at most 2000 characters. It stays unpublished. The tasks are stored in the Portal only and are not sent to Notion. Where it was created is taken from the token name. Send an idempotency key. Retries with the same key replay the first result.',
     write: true,
     schema: {
       projectId: z.string().min(1),
@@ -404,6 +410,7 @@ export const portalTools: PortalTool[] = [
           z.object({
             title: z.string().min(1).max(200),
             detail: z.string().max(4000).optional(),
+            kind: taskKind.optional(),
           }),
         )
         .min(PROPOSED_TASKS_MIN)
@@ -428,7 +435,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'get_milestone_status',
     description:
-      'Read one milestone: status, approval, iteration, the ordered task checklist with origin, the local and Vercel previews, the pull request, and the latest reviews, notes and events. Use the iteration it returns when you approve or request changes.',
+      'Read one milestone: status, approval, iteration, the tasks in order with origin, the local and Vercel previews, the pull request, and the latest reviews, notes and events. Use the iteration it returns when you approve or request changes.',
     write: false,
     schema: { milestoneId: z.string().min(1) },
     call: (args) => ({
@@ -512,6 +519,30 @@ export const portalTools: PortalTool[] = [
       body: defined({
         iteration: args.iteration,
         decision: 'request_changes',
+        notes: args.notes,
+        newTasks: args.newTasks,
+        taskIds: args.taskIds,
+      }),
+    }),
+  },
+  {
+    name: 'request_design_changes',
+    description:
+      "Record Peter's request for design changes on a visual milestone (one with a design task) whose designs he has not approved. Only the grok-bot token is accepted. Notes are required. Each line in newTasks becomes a design task in this milestone; without newTasks the notes become one design task. taskIds names the design tasks they revise. The Approve designs Ask closes, build tasks stay locked, and status does not change. Send an idempotency key.",
+    write: true,
+    schema: {
+      milestoneId: z.string().min(1),
+      notes: z.string().min(1).max(8000),
+      newTasks: z.array(z.string().min(1).max(200)).max(10).optional(),
+      taskIds: z.array(z.string().min(1)).max(50).optional(),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/milestones/design-changes',
+      idempotencyKey: String(args.idempotencyKey),
+      body: defined({
+        milestoneId: args.milestoneId,
         notes: args.notes,
         newTasks: args.newTasks,
         taskIds: args.taskIds,

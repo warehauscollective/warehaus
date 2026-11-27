@@ -17,6 +17,8 @@ Task {{taskOrder}}: **{{taskTitle}}**
 
 {{taskDetail}}
 
+{{kindRules}}
+
 ## Rules
 
 - You are in a git worktree on branch `{{branch}}`. Stay on it. Do not switch branches, rebase, or force-push.

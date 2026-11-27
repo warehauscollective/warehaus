@@ -335,6 +335,19 @@ html.light .ds-scope {
     padding-top: 0;
   }
 }
+/* Project list filter and sort controls, menu rows and value chips. */
+.project-filter-focus:focus {
+  outline: none;
+}
+.project-filter-focus:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+/* The date input covers its field and is transparent, so the field shows the ring. */
+.project-filter-date:focus-within {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
 /* Dialog Cancel. Replaces the browser's blue ring with the portal ring. */
 .portal-outline-button:focus {
   outline: none;
@@ -954,5 +967,64 @@ body:has([data-dock-layer='task']):not(:has(.portal-modal-scrim:not([data-dock-l
 @media (max-width: 767px) {
   .client-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Building indicator, Figma Atom/Indicator/Building (1302:28943). */
+.building-indicator {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+.building-indicator-dot {
+  width: 58%;
+  height: 58%;
+  border-radius: 999px;
+  background: var(--info);
+}
+.building-indicator[data-state='live']::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--info);
+  opacity: 0.35;
+  animation: building-pulse 1.6s ease-out infinite;
+}
+.building-indicator[data-state='queued'] .building-indicator-dot {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  border: 1.5px dashed var(--muted);
+}
+.building-indicator[data-state='blocked'] .building-indicator-dot {
+  background: var(--danger);
+}
+.building-indicator[data-state='stalled'] .building-indicator-dot {
+  background: var(--warning);
+}
+@keyframes building-pulse {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .building-indicator[data-state='live']::before {
+    animation: none;
+    transform: scale(1);
+    opacity: 0.25;
+  }
+}
+@media (max-width: 767px) {
+  .building-suffix {
+    display: none;
   }
 }

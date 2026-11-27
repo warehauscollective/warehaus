@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import { cursorCreateBody } from './drivers/cursor.mjs';
 import {
   childEnv,
+  taskKindRules,
   defaultBranchName,
   hookEvent,
   HEARTBEAT_MS,
@@ -197,6 +198,22 @@ describe('prompts', () => {
     assert.equal(designApprovalLine('2026-11-25'), '');
   });
 
+  it('tells a design task to work in Figma and commit nothing, and leaves a build task as before', () => {
+    const designPrompt = taskPrompt(read('../prompts/task.md'), { ...work, task: { ...work.task, kind: 'design' } });
+    assert.match(designPrompt, /## This is a design task/);
+    assert.match(designPrompt, /docs\/design\/figma-protocol\.md/);
+    assert.match(designPrompt, /\.runner\/design-done\.txt/);
+    const buildPrompt = taskPrompt(read('../prompts/task.md'), { ...work, task: { ...work.task, kind: 'build' } });
+    assert.equal(buildPrompt.includes('design task'), false);
+    assert.equal(taskKindRules(undefined), '');
+  });
+
+  it('asks the planner for a kind on every task', () => {
+    const prompt = planPrompt(read('../prompts/plan-milestone.md'), work);
+    assert.match(prompt, /"kind": "build"/);
+    assert.match(prompt, /first task is a design task/);
+  });
+
   it('fills the planning prompt and keeps it read only', () => {
     const prompt = planPrompt(read('../prompts/plan-milestone.md'), work);
     assert.match(prompt, /\*\*<<<NAME>>>\nLaunch\n<<<END NAME>>>\*\*/);
@@ -261,6 +278,13 @@ describe('plan file', () => {
     assert.equal(parsePlan(JSON.stringify({ tasks: ['a', 'b'] })).ok, false);
     assert.equal(parsePlan(JSON.stringify({ tasks: ['a', 'b', ''] })).ok, false);
   });
+
+  it('keeps a design kind and drops anything else', () => {
+    const plan = parsePlan(
+      JSON.stringify({ tasks: [{ title: 'Design', kind: 'Design' }, { title: 'Build', kind: 'build' }, { title: 'Odd', kind: 'x' }] }),
+    );
+    assert.deepEqual(plan, { ok: true, tasks: [{ title: 'Design', kind: 'design' }, { title: 'Build' }, { title: 'Odd' }] });
+  });
 });
 
 describe('task outcome', () => {
@@ -271,6 +295,13 @@ describe('task outcome', () => {
       status: 'blocked',
       reason: 'needs a Figma frame',
     });
+  });
+
+  it('counts a design task done with its done note and no commit', () => {
+    assert.deepEqual(taskOutcome({ before: 'aaa', after: 'aaa', blockedReason: '', designDone: 'Task card 1106:8680\n' }), {
+      status: 'done',
+    });
+    assert.equal(taskOutcome({ before: 'aaa', after: 'aaa', blockedReason: '', designDone: '  ' }).status, 'failed');
   });
 
   it('waits one minute, then longer, up to five', () => {
@@ -292,8 +323,9 @@ describe('task outcome', () => {
     }
     const cli = read('./cli.mjs');
     assert.match(cli, /await waitIdle\(config, coolDown == null \? idleDelayMs\(empty\)/);
-    // The ping goes through the protocol client and carries Paused.
-    assert.match(cli, /client\(config\)\.ping\(\{ paused: control\.paused \}\)/);
+    // The ping goes through the protocol client and carries Paused, and the runs held (protocol 4 signs of life).
+    assert.match(cli, /client\(config\)\.ping\(\{ paused: control\.paused, held: heldRuns\(\) \}\)/);
+    assert.match(cli, /client\(config\)\.ping\(\{ held: heldRuns\(\) \}\)/);
   });
 
   it('idleWait runs its pings: one between slices, none after the last, failures skipped', async () => {

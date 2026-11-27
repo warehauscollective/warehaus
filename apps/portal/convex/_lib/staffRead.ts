@@ -9,6 +9,7 @@
  * Reads are indexed per staff-visible client, never a whole-table scan of
  * projects or tasks.
  */
+import { taskKind } from './designGate';
 import { clientIsStaffVisible } from '@warehaus/portal-sync';
 import type { Doc, Id } from '../_generated/dataModel';
 import type { QueryCtx } from '../_generated/server';
@@ -111,6 +112,7 @@ export function staffTask(row: Doc<'tasks'>) {
     portalOwned,
     publishToWarehaus: row.publishToWarehaus,
     milestoneId: row.milestoneId ?? null,
+    kind: taskKind(row),
     description: row.description ?? null,
     fieldStamps: row.fieldStamps ?? null,
   };

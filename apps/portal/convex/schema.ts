@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
 import { fieldStamp } from './_lib/outboxKind';
+import { projectListViewFields } from './_lib/projectListViewFields';
 
 /**
  * Portal Convex schema — separate deployment from Motoko/agent.
@@ -76,6 +77,25 @@ export default defineSchema({
      * a client. The Cursor API key is not stored here.
      */
     agentDriver: v.optional(v.union(v.literal('claude_code'), v.literal('cursor'))),
+    /**
+     * Staff only. The `main` commit production runs, saved by each deploy run
+     * that succeeds. Absent until the first one; the deploy target's baseline
+     * stands in. Convex only.
+     */
+    deployedCommit: v.optional(v.string()),
+    deployedAt: v.optional(v.number()),
+    /**
+     * Staff only. `main` as it was last compared with the deployed commit:
+     * the commits production does not run yet. Convex only.
+     */
+    deployPending: v.optional(
+      v.object({
+        sha: v.string(),
+        total: v.number(),
+        commits: v.array(v.object({ sha: v.string(), title: v.string(), pr: v.optional(v.number()) })),
+        checkedAt: v.number(),
+      }),
+    ),
     description: v.optional(v.string()),
     status: v.string(),
     progress: v.optional(v.number()),
@@ -173,6 +193,12 @@ export default defineSchema({
     ),
     /** Review iteration that asked for this task. Set with origin review. Staff only. */
     round: v.optional(v.number()),
+    /**
+     * Design or Build (`_lib/designGate.ts`). Missing reads as build. A
+     * milestone with a design task holds its build tasks until Peter
+     * approves the designs. Staff only.
+     */
+    kind: v.optional(v.union(v.literal('design'), v.literal('build'))),
     /** Runner id working this task. Set on claim, cleared when the run ends. Staff only. */
     claimedBy: v.optional(v.string()),
     claimedAt: v.optional(v.number()),
@@ -321,6 +347,8 @@ export default defineSchema({
     previewDeleteAt: v.optional(v.number()),
     /** Set only when a real production deploy finishes. Absent means it has not finished. */
     deployFinishedAt: v.optional(v.number()),
+    /** When the milestone's pull request merged into the default branch. Set by the GitHub webhook. Staff only. */
+    mergedAt: v.optional(v.number()),
     /** Optional person on this client. Convex only. Not written to Notion. */
     ownerContactId: v.optional(v.id('contacts')),
     /** Calendar day, YYYY-MM-DD. Absent means not set. */
@@ -380,6 +408,35 @@ export default defineSchema({
     .index('by_branch', ['branch']),
 
   /**
+   * One Deploy to main run on a project (ADR-0009). Staff only. The Portal
+   * starts the GitHub deploy workflow and the workflow reports each step back.
+   * A project has at most one run that is starting or running.
+   */
+  deployRuns: defineTable({
+    orgId: v.id('clients'),
+    projectId: v.id('projects'),
+    /** The `main` commit this run deploys. */
+    sha: v.string(),
+    status: v.union(v.literal('starting'), v.literal('running'), v.literal('failed'), v.literal('done')),
+    /** The step in hand, or the step that failed. */
+    step: v.optional(v.union(v.literal('dispatch'), v.literal('convex'), v.literal('vercel'))),
+    convexDone: v.optional(v.boolean()),
+    startedBy: v.id('contacts'),
+    startedAt: v.number(),
+    finishedAt: v.optional(v.number()),
+    /** Starts at 1. Retry adds one. */
+    attempt: v.number(),
+    /** Shipped milestones this run releases. */
+    milestoneIds: v.array(v.id('milestones')),
+    /** Commits on `main` in this run that belong to no milestone. */
+    looseCount: v.number(),
+    /** The workflow run on GitHub, once it reports. */
+    workflowUrl: v.optional(v.string()),
+    /** The open Ask on Peter after a failure. Cleared when a retry succeeds. */
+    askId: v.optional(v.id('milestoneNotes')),
+  }).index('by_projectId', ['projectId']),
+
+  /**
    * One human review of one iteration. Idempotent on milestone + iteration.
    * Staff-only. No Notion write. Clients never query this table.
    */
@@ -431,6 +488,12 @@ export default defineSchema({
      * grace window, so Retry cannot start a second run over it.
      */
     settledAt: v.optional(v.number()),
+    /**
+     * The run's last sign of life (protocol 4): the runner lists the runs it
+     * holds on every claim and ping. Written at most once a minute. Absent on
+     * a run from an older runner, which never shows Stalled.
+     */
+    aliveAt: v.optional(v.number()),
   })
     .index('by_milestone', ['milestoneId', 'startedAt'])
     .index('by_task', ['taskId'])
@@ -541,20 +604,11 @@ export default defineSchema({
      */
     waitingOn: v.optional(v.id('contacts')),
     /** Why it is an Ask. Set with `open` and kept after it is answered. */
-    reason: v.optional(v.union(v.literal('approval'), v.literal('blocked'))),
+    reason: v.optional(v.union(v.literal('approval'), v.literal('blocked'), v.literal('design'))),
     /** The blocked task. Absent on an approval request. */
     taskId: v.optional(v.id('tasks')),
-    /**
-     * The flag `open` replaced. Only the one-off migration in
-     * `_lib/askMigration.ts` reads it, through `by_needsPeter`, and clears it
-     * as it turns each row into an Ask waiting on Peter. The field and that
-     * index stay until the migration has run on production; a deploy that
-     * drops them before then fails on the rows that still carry the flag.
-     */
-    needsPeter: v.optional(v.literal('open')),
   })
     .index('by_milestone_createdAt', ['milestoneId', 'createdAt'])
-    .index('by_needsPeter', ['needsPeter', 'createdAt'])
     .index('by_open', ['open', 'createdAt'])
     .index('by_waitingOn_open', ['waitingOn', 'open', 'createdAt'])
     .index('by_milestone_open', ['milestoneId', 'open']),
@@ -1026,6 +1080,17 @@ export default defineSchema({
     needsAttention: v.boolean(),
     sharedRecaps: v.boolean(),
     weeklySummary: v.boolean(),
+    updatedAt: v.number(),
+  }).index('by_contactId', ['contactId']),
+
+  /**
+   * The saved project list view: quick filter chip, menu filters and sort.
+   * One row per contact. No row means the default view. Portal only: nothing
+   * here goes to Notion.
+   */
+  projectListPrefs: defineTable({
+    contactId: v.id('contacts'),
+    ...projectListViewFields,
     updatedAt: v.number(),
   }).index('by_contactId', ['contactId']),
 

@@ -25,6 +25,8 @@ export type MilestoneTaskInput = {
   /** Who made it (`api`, `ui`) and the caller's own id, so a retry finds the same row. */
   via: 'api' | 'ui';
   ref: string;
+  /** Design or build. Missing is build. */
+  kind?: 'design' | 'build';
 };
 
 export function milestoneTaskKey(milestoneId: string, via: 'api' | 'ui', ref: string): string {
@@ -58,6 +60,7 @@ export async function insertMilestoneTask(
     publishToWarehaus: false,
     source: PORTAL_MILESTONE_TASK_SOURCE,
     origin: 'manual',
+    ...(input.kind === 'design' ? { kind: 'design' as const } : {}),
     milestoneId: input.milestone._id,
     milestoneOrder: nextMilestoneOrder(siblings.rows.map((row) => row.milestoneOrder)),
     updatedAt: at,

@@ -26,8 +26,11 @@ crons.interval(
 );
 
 /**
- * Runner runs whose runner went quiet for 30 minutes go back in the queue.
- * One indexed read of running runs, at most 25. With no run open it writes nothing.
+ * Stuck runner runs are blocked: a protocol 4 run with no sign of life for 15
+ * minutes (Stalled), or an older run whose runner went quiet for 30. The sweep
+ * runs every 10 minutes, so a stalled run is blocked 15 to 25 minutes after its
+ * last sign of life. One indexed read of running runs, at most 25. With no run
+ * open it writes nothing.
  */
 crons.interval(
   'release-stuck-runs',

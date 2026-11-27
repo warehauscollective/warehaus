@@ -39,6 +39,7 @@ import {
   retryLeaseDecision,
   runnerRepos,
   runIsStuck,
+  stuckRunReason,
   runMode,
   runToolLabel,
   runnerOnline,
@@ -58,6 +59,8 @@ import { proposedTasksDecision } from './_lib/milestoneBot';
 import { changeMilestoneStatus } from './_lib/milestoneLifecycle';
 import type { MilestoneStatus } from './_lib/milestoneStatus';
 import { PORTAL_MILESTONE_TASK_SOURCE, plannerDraftToArchive, stageForNewMilestoneTask } from './_lib/milestoneTasks';
+import { taskKind } from './_lib/designGate';
+import { syncDesignAsk } from './_lib/designGateStore';
 import { loadClaimableTasks, loadMilestoneTaskSet, type LoadedTask } from './_lib/milestoneTaskSet';
 import { PortalAuthError } from './_lib/identity';
 import { adminMutation, adminQuery } from './_lib/wrappers';
@@ -73,6 +76,7 @@ import {
 } from './_lib/runnerRegistry';
 import { registeredRunners, sweepExpiredPairings } from './_lib/runnerRegistryStore';
 import { RUNNER_PROTOCOL_MIN } from '@warehaus/runner-protocol';
+import { aliveWriteDue } from './_lib/buildRun';
 import { PRODUCTION_DEPLOYMENT } from './_lib/reviewPreview';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 import { planningRunsInWindow, queuePlanning } from './planningQueue';
@@ -196,8 +200,10 @@ export const touchRunner = internalMutation({
     tokenHash: v.optional(v.string()),
     protocolVersion: v.optional(v.number()),
     paused: v.optional(v.boolean()),
+    /** Protocol 4: the run ids the runner holds right now. Each gets a sign of life. */
+    alive: v.optional(v.array(v.string())),
   },
-  handler: async (ctx, { runnerId, tokenHash, protocolVersion, paused }) => {
+  handler: async (ctx, { runnerId, tokenHash, protocolVersion, paused, alive }) => {
     const now = Date.now();
     const row = await ctx.db
       .query('agentRunners')
@@ -213,6 +219,7 @@ export const touchRunner = internalMutation({
       now,
     });
     if (!decision.ok) return failure(429, decision.reason);
+    if (alive?.length) await markRunsAlive(ctx, runnerId, alive, now);
     const versionChanged = protocolVersion != null && row?.protocolVersion !== protocolVersion;
     const pause = runnerPausePatch(row?.pausedAt, paused, now);
     if (!decision.write) {
@@ -250,6 +257,22 @@ export const touchRunner = internalMutation({
     return { ok: true as const, registered };
   },
 });
+
+/**
+ * Signs of life (protocol 4). Each run id the runner says it holds, that is
+ * its own and still running, gets `aliveAt`, at most once a minute. A point
+ * read per id, capped at the runner's slots, so this stays a few reads.
+ */
+async function markRunsAlive(ctx: MutationCtx, runnerId: string, runIds: readonly string[], now: number) {
+  for (const raw of runIds.slice(0, RUNNER_MAX_SLOTS * 2)) {
+    const id = ctx.db.normalizeId('agentRuns', raw);
+    if (!id) continue;
+    const run = await ctx.db.get(id);
+    if (!run || run.runnerId !== runnerId || run.status !== 'running') continue;
+    if (!aliveWriteDue(run.aliveAt, now)) continue;
+    await ctx.db.patch(run._id, { aliveAt: now });
+  }
+}
 
 /** The runner's open runs, oldest first. Capped: a runner holds at most RUNNER_MAX_SLOTS. */
 async function runningRunsFor(ctx: MutationCtx, runnerId: string) {
@@ -322,6 +345,8 @@ async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
       detail: task.description ?? '',
       origin: task.origin ?? null,
       round: task.round ?? null,
+      /** Design tasks work in Figma and never change code (task.md). */
+      kind: taskKind(task),
     },
     driver: 'claude_code' as const,
   };
@@ -334,6 +359,7 @@ function buildTaskPayload({ doc: task }: LoadedTask) {
     order: (task.milestoneOrder ?? 0) + 1,
     title: task.name,
     detail: task.description ?? '',
+    kind: taskKind(task),
   };
 }
 
@@ -360,6 +386,8 @@ export const claimNext = internalMutation({
     slots: v.optional(v.number()),
     /** The run ids the runner is working on now. */
     held: v.optional(v.array(v.string())),
+    /** Protocol 4: the runner sends a sign of life for each run, so a new run starts with one. */
+    signsOfLife: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const repos = runnerRepos(args.repos);
@@ -423,6 +451,7 @@ export const claimNext = internalMutation({
         mode,
         status: 'running',
         startedAt: now,
+        ...(args.signsOfLife ? { aliveAt: now } : {}),
       });
       await writeEvent(ctx, {
         orgId: planning.orgId,
@@ -484,6 +513,7 @@ export const claimNext = internalMutation({
           mode,
           status: 'running',
           startedAt: now,
+          ...(args.signsOfLife ? { aliveAt: now } : {}),
           ...(resume ? { externalId: resume.externalId } : {}),
           ...(resume?.externalUrl ? { externalUrl: resume.externalUrl } : {}),
           agentStartedAt: followed ? (followed.agentStartedAt ?? followed.startedAt) : now,
@@ -530,6 +560,7 @@ export const claimNext = internalMutation({
         mode,
         status: 'running',
         startedAt: now,
+        ...(args.signsOfLife ? { aliveAt: now } : {}),
       });
       const order = String((task.milestoneOrder ?? 0) + 1).padStart(2, '0');
       await writeEvent(ctx, {
@@ -711,6 +742,8 @@ async function markReady(
     return milestone.status;
   }
   await tooManyTasksNote(ctx, milestone, { open: false });
+  // The last design task done on a visual milestone asks Peter to approve the designs.
+  await syncDesignAsk(ctx, milestone, { addedBy: `runner:${runnerId}`, at: now, rows: loaded.set.tasks });
   if (!loaded.set.allDone) return milestone.status;
   const moved = await changeMilestoneStatus(ctx, milestone, {
     cause: 'set',
@@ -780,6 +813,7 @@ export const writePlannedTasks = internalMutation({
           publishToWarehaus: false,
           source: PORTAL_MILESTONE_TASK_SOURCE,
           origin: 'planner',
+          ...(task.kind === 'design' ? { kind: 'design' as const } : {}),
           milestoneId: milestone._id,
           milestoneOrder: index,
           updatedAt: now,
@@ -899,7 +933,8 @@ export const releaseRun = internalMutation({
 });
 
 /**
- * Releases runs whose runner went quiet for 30 minutes. A task run is
+ * Releases stuck runs: a protocol 4 run with no sign of life for 15 minutes
+ * (Stalled), or an older run whose runner went quiet for 30. A task run is
  * cancelled and its task is Blocked. A planning job is blocked for Retry.
  * A Cursor build uses the same failed hold as a stopped agent, so the next
  * claim does not start another cloud agent and Retry can clear it. Reads
@@ -928,8 +963,8 @@ export const releaseStuckRuns = internalMutation({
           continue;
         }
       }
-      if (!runIsStuck({ lastSeenAt: runner?.lastSeenAt, startedAt: run.startedAt, now })) continue;
-      const why = 'Runner went quiet for 30 minutes';
+      if (!runIsStuck({ lastSeenAt: runner?.lastSeenAt, startedAt: run.startedAt, now, aliveAt: run.aliveAt })) continue;
+      const why = stuckRunReason(run.aliveAt);
       const milestone = await ctx.db.get(run.milestoneId);
       if (run.kind === 'build' && milestone) {
         await blockCursorBuild(ctx, run, milestone, run.runnerId, why, now, false);
@@ -978,7 +1013,10 @@ export const releaseStuckRuns = internalMutation({
         milestoneId: run.milestoneId,
         runId: run._id,
         type: 'failed',
-        summary: `Run blocked · ${run.runnerId} went quiet for 30 minutes`,
+        summary:
+          run.aliveAt != null
+            ? `Run blocked · stalled, no sign of life from ${run.runnerId} for 15 minutes`
+            : `Run blocked · ${run.runnerId} went quiet for 30 minutes`,
         at: now,
       });
       released += 1;

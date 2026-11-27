@@ -6,6 +6,8 @@ import { runnerAppPublishHttp } from './runnerApp';
 import { RUNNER_APP_PUBLISH_PATHS } from './_lib/runnerApp';
 import { portalApiHttp } from './portalApi';
 import { reviewPreviewHttp } from './milestones';
+import { deployRunHttp } from './deploys';
+import { DEPLOY_RUN_PATH } from './_lib/deploy';
 import { REVIEW_PREVIEW_PATH } from './_lib/reviewPreview';
 import { githubWebhook, vercelWebhook } from './sync/inbound';
 import { notionWebhook } from './sync/queue';
@@ -48,6 +50,12 @@ http.route({
   handler: reviewPreviewHttp,
 });
 
+http.route({
+  path: DEPLOY_RUN_PATH,
+  method: 'POST',
+  handler: deployRunHttp,
+});
+
 for (const path of AGENT_ROUTES) {
   http.route({ path, method: 'POST', handler: agentHttp });
 }
@@ -75,6 +83,7 @@ export const portalApiRoutes: Array<{ path: string; method: 'GET' | 'POST' }> = 
   { path: '/api/v1/milestones/asks', method: 'GET' },
   { path: '/api/v1/milestones/needs-peter', method: 'GET' },
   { path: '/api/v1/milestones/note', method: 'POST' },
+  { path: '/api/v1/milestones/design-changes', method: 'POST' },
   { path: '/api/v1/milestones/update', method: 'POST' },
   { path: '/api/v1/milestones/attach', method: 'POST' },
   { path: '/api/v1/milestones/detach', method: 'POST' },

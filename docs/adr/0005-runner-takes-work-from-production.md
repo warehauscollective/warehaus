@@ -2,6 +2,8 @@
 
 Status: Accepted, Peter, 2026-11-24. Peter answered "Yes to all" to both grilling rounds on the Auto-planning and agent choice milestone, then confirmed the summary with "Yes, set it up". The work is tracked in the Portal milestone "Runner on production".
 
+Later decisions: Portal project decisions 0016 to 0026 (milestone lifecycle grilling, 2026-11-26) change parts of this record once their milestones ship. `AGENTS.md`, "Decided, not built yet", lists them.
+
 ## Context
 
 ADR-0001 kept the runner on shared dev `graceful-mastiff-960`. The runner refuses any `unique-turtle-383` URL, and only dev has `RUNNER_TOKENS`. Staff, Grok Bot and Peter all track milestones in the production Portal. So on production a milestone that enters Planning is queued and never planned, and a milestone in Building never moves. Whatever a runner does on dev stays in dev's data.
@@ -100,3 +102,12 @@ On 2026-11-26 the production runner `peteroqs-laptop-prod` blocked tasks 04 to 0
 - The runner claims nothing until the reset Claude named plus a minute, or 30 minutes when it names none, at most 8 days. The limit is the account's, so one run that hits it holds every slot.
 - Supervised, the runner prints a `waiting` line with reason `usage_limit` and the time it takes work again. It is not an `attention` reason: nobody has to act, and the wait ends on its own. Showing it in the Mac app is later work and needs a design.
 
+
+## Amendment, 2026-11-26: signs of life (protocol 4)
+
+Portal decisions 0011 and 0014, milestone "Building indicator". Peter wants the Portal to show when a Building milestone has a run going, and to catch a run that went silent sooner than 30 minutes.
+
+- `RUNNER_PROTOCOL_VERSION` is 4. Parallel runs already used 3, so signs of life are 4, not the 3 that decision 0014 names.
+- Each claim and each ping lists the runs the runner holds (`held`). The runner pings every 75 seconds (`HEARTBEAT_MS`) while runs go and through a long idle wait. For each held run that is this runner's and still running, the Portal stamps `agentRuns.aliveAt`, at most once a minute per run: one point read per held id, capped at 8, and no write inside the minute. There is no new route.
+- A claim from a protocol 4 runner starts its run with `aliveAt` set. A run from an older runner never gets one and keeps the 30-minute rule.
+- A run with no sign of life for 5 minutes shows **Stalled** on the milestone (worked out in the browser from `aliveAt`, since queries do not rerun as time passes). After 15 minutes the stuck sweep blocks it with "Stalled: no sign of life from the runner for 15 minutes", even while the runner itself still pings. The sweep stays every 10 minutes to keep Convex usage low, so a stalled run is blocked 15 to 25 minutes after its last sign of life.

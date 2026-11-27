@@ -11,19 +11,21 @@ Every plan or feature follows this. Cursor agents, Claude agents, and Grok bots 
 ### Work
 
 - Every change belongs to a Portal milestone, or a task inside one. Nothing is coded without that link.
-- The pull request names that task.
-- Design tasks come first, in Dark and Light at 1440 and 390. The Figma screens and the spec are tasks before any build task. Peter approves the plan and the design in Grok Bot or the Portal before build starts. In the Portal, Peter presses Approve designs in the milestone tile's Status box (Idea to Building only). It saves who and when on the milestone, adds a staff Activity row, and puts a "Design: approved" line in the runner's task prompt. It does not change Status, merge or deploy.
-- Post dev updates on the milestone: the next action and the pull request link.
+- One pull request per milestone. It names the milestone and its `Milestone-Id`, and carries every task's commits. The runner opens it this way, and an agent working outside the runner does the same.
+- Design tasks come first, in Dark and Light at 1440 and 390. The Figma screens and the spec are tasks before any build task. Peter approves the plan and the design in Grok Bot or the Portal before build starts. Every task has a kind, Design or Build (ADR-0008). A milestone with a design task is a visual milestone: the runner works only its design tasks until Peter approves the designs, and Building shows its phase (Designs, Waiting on design approval, Build). When the last design task is done, an Approve designs Ask opens on Peter. In the Portal he presses Approve designs or Request design changes in the milestone tile's Status box (Idea to Building only). Approve designs saves who and when, unlocks build and closes the Ask. Request design changes adds design tasks that name what they revise and keeps build locked. Neither changes Status, merges or deploys.
+- Dev updates: when the runner builds, its feed events (run, commit, blocked, Ready to Ship) are the dev updates, and the pull request link is stored on the milestone. Do not post them by hand. An agent working outside the runner posts a milestone note with the next action and the pull request link.
 - Product Design Lead checks the build against Figma from screenshots (Dark and Light, desktop and phone) and posts pass or fixes on the milestone. Then Peter opens the build.
 - Peter's feedback becomes iteration tasks in the same milestone ("Iteration N: …"). If the design changes, Product Design Lead updates Figma first so Figma and the build match. Rebuild and preview again on his Mac.
 
 ### Milestone status
 
 - A milestone has one field, Status: Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, Parked.
-- Every status write goes through `transitionMilestone()` in `apps/portal/convex/_lib/milestoneStatus.ts`.
+- Every status write goes through `changeMilestoneStatus()` in `apps/portal/convex/_lib/milestoneLifecycle.ts`. It applies the rules in `transitionMilestone()` (`apps/portal/convex/_lib/milestoneStatus.ts`), writes one activity row and runs the entry and exit effects.
+- Awaiting Go means the plan is ready and waits for staff to press Go. Only staff in the Portal can move a milestone to Building.
+- Shipped means merged to `main`, or closed by staff with Mark complete. It never means deployed.
 - Staff can set Shipped when every task that is not Parked is Done. The play button never moves to Shipped.
 - The play button moves one step: Idea, Planning, Awaiting Go, Building, Ready to Ship. No play on Ready to Ship, Shipped, or Parked.
-- Approval is not a status. It is the review result. Approve unlocks when Status is Ready to Ship and a preview is attached. Request changes moves Status back to Building.
+- Approval is not a status. It is the review result. Approve unlocks when Status is Ready to Ship and a preview is attached. Request changes from the Portal moves Status back to Building. From chat it moves to Awaiting Go today; decision 0018 sends both to Building.
 - The staff API and MCP return and accept `status`. `stage` and `workStatus` are aliases for one release.
 
 ### Preview
@@ -42,8 +44,8 @@ Every plan or feature follows this. Cursor agents, Claude agents, and Grok bots 
 
 - Nothing merges, and nothing goes live, until Peter approves in Grok Bot chat or the Portal.
 - Peter never approves in Notion. He does not give the OK in Notion, and he does not interact with Notion directly.
-- Agents record his decision in Notion and the Portal on his behalf, with the date and where he said it. Notion is the agents' back office.
-- After that approval, the code can merge and the milestone can close. Merging does not deploy. A production deploy still needs Peter's explicit "deploy main", from `main` only.
+- Agents record his decision in the Portal on his behalf, with the date and where he said it: a milestone review, an Ask answer, or a project decision. Never in Notion.
+- After that approval, the code can merge and the milestone can close. Merging does not deploy. Production deploys only when Peter presses Deploy to main on the Warehaus Portal project page (ADR-0009, live since 2026-11-27): the GitHub `portal-deploy` workflow deploys Convex then Vercel from one `main` commit. "deploy main" in chat is retired and agents never deploy, even when asked: no `vercel`, no `convex deploy` to production, and no starting the workflow by hand.
 
 ### Asks
 
@@ -54,6 +56,16 @@ Decided by Peter, 2026-11-25. Full record: `docs/adr/0006-multi-platform-portal.
 - Approval Asks wait on Peter, the only approver. Blocked Asks wait on Peter until milestones or tasks have an owner.
 - Agents read open Asks with `list_asks`, with an optional `person` (`docs/portal-mcp.md`). `list_needs_peter` is the old name and answers for one release.
 - Say Ask in code, notes and docs. ADR-0001 and ADR-0005 keep the old wording as historical records.
+
+### Decided, not built yet
+
+Settled with Peter in the milestone lifecycle grilling on 2026-11-26: Portal project decisions 0016 to 0026, in the Ship and deploy grilling the same day (`docs/adr/0007-ship-and-deploy-from-the-portal.md`), and in the Shipped and Deploy to main grilling on 2026-11-27 (`docs/adr/0009-shipped-merges-deploy-to-main.md`), which replaces the Ship and deploy button. The first two are drawn in the FigJam board Warehaus Studio, UserFlows section 4. Until each milestone below ships, the code works as described above.
+
+- On a visual milestone, a Product Design Lead check runs as a runner job at Ready to Ship; Peter's approval Ask opens on pass. Milestone: Product Design Lead check.
+- A status change has the same effects whichever path makes it, requested changes always go to Building as top-level iteration tasks, and a milestone's tasks follow its status. Milestone: Same effects on every status path.
+- Preview link on the tile (ADR-0009): every entry into Ready to Ship starts the Vercel branch preview, pushes the branch's Convex code to shared dev `graceful-mastiff-960`, and writes the link to the production milestone's tile. Peter then approves from that link, and the local preview becomes optional. The preview is kept until Shipped. Milestone: Preview link on the tile.
+- Shipped merges (ADR-0009): only Peter moves a milestone with an open pull request to Shipped, in the Portal, and that move is his approval and the merge. A GitHub workflow merges `main` into the branch, runs the checks and squash-merges; a failure adds a task and sends the milestone back to Building. Bots, the staff API and other staff cannot set Shipped on such a milestone. A merged milestone cannot leave Shipped. Milestone: Shipped merges the pull request.
+- Deploy to main (ADR-0009): first version built in the milestone Deploy to main. A counter of Shipped milestones not yet deployed and a Deploy to main button sit on the project page. Only Peter presses it; the GitHub `portal-deploy` workflow deploys Convex then Vercel from one `main` commit and reports each step to the Portal, which stores the deployed commit. Peter set the secrets (`docs/deploy-to-main-setup.md`) and his first run from the button succeeded on 2026-11-27, so it is now the only production deploy path, as the approval rules above say. Still to build: deploy notes, manual-step checkboxes, and clients seeing Ready to Ship until deployed. Warehaus Portal project only, until other projects have a deploy setting.
 
 ### Convex
 

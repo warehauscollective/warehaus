@@ -88,7 +88,6 @@ import {
 } from './_lib/milestoneTasks';
 import { normalizeLocalPreviewUrl, tileLinkChangeDecision, type TileLinkField } from './_lib/tileLinks';
 import { closeAsksOnMilestone, peterContactId } from './_lib/askStore';
-import { ASK_MIGRATION_BATCH, migrateNeedsPeterBatch } from './_lib/askMigration';
 import {
   MILESTONE_ONE_NAME,
   MILESTONE_ONE_OBJECTIVE,
@@ -119,7 +118,16 @@ import {
   reviewPreviews,
   reviewRetryLiveOnClient,
 } from './_lib/previewLink';
-import { approveDesignDecision, ONLY_PETER_DESIGNS } from './_lib/designApproval';
+import {
+  approveDesignDecision,
+  ONLY_PETER_DESIGN_CHANGES,
+  ONLY_PETER_DESIGNS,
+  requestDesignChangesDecision,
+} from './_lib/designApproval';
+import { deployMark } from './_lib/deploy';
+import { designGate, taskKind, TASK_KIND_NEEDS_MILESTONE } from './_lib/designGate';
+import { stageForNewMilestoneTask } from './_lib/milestoneTasks';
+import { setTaskKind as writeTaskKind, syncDesignAsk } from './_lib/designGateStore';
 import {
   PREVIEW_DELETED_ACTIVITY,
   PREVIEW_READY_ACTIVITY,
@@ -139,6 +147,7 @@ import {
 import { adminMutation, adminQuery, clientMutation, clientQuery } from './_lib/wrappers';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 import { planningForNewMilestone } from './_lib/agentRun';
+import { milestoneBuildRun } from './_lib/buildRunRead';
 
 const statusArg = v.union(
   v.literal('Idea'),
@@ -300,11 +309,13 @@ async function roadmapTasks(
       source: task.source ?? null,
       origin: taskOrigin({ origin: task.origin, source: task.source }),
       round: task.round ?? null,
+      kind: taskKind(task),
       portalOwned: isPortalOwnedTask({ source: task.source, notionPageId: task.notionPageId }),
       detail: task.description ?? null,
       runner: task.claimedBy ?? null,
       commit: task.lastCommitSha ?? null,
       blockedReason: task.blockedReason ?? null,
+      nextAction: task.nextAction ?? null,
     });
   }
   return rows;
@@ -372,6 +383,15 @@ async function lastChangeFor(
   ]);
 }
 
+/** The design gate as the tile and the task rows show it. Staff only. */
+function roadmapDesignGate(inputs: readonly RoadmapTaskInput[], milestone: Doc<'milestones'>) {
+  const gate = designGate(
+    inputs.filter((task) => task.milestoneId === milestone._id),
+    milestone.designApprovedAt,
+  );
+  return { visual: gate.visual, buildLocked: gate.buildLocked, phase: gate.phase };
+}
+
 async function toRoadmap(
   ctx: QueryCtx,
   milestone: Doc<'milestones'>,
@@ -390,6 +410,7 @@ async function toRoadmap(
     audience === 'staff' && milestone.approverContactId ? await ctx.db.get(milestone.approverContactId) : null;
   const updatedAt =
     audience === 'staff' && showsUpdatedStamp(milestone.status) ? await lastChangeFor(ctx, milestone, tasks) : null;
+  const buildRun = await milestoneBuildRun(ctx, milestone, tasks, audience);
   const view: MilestoneRoadmapView = {
     id: milestone._id,
     name: milestone.name,
@@ -406,6 +427,8 @@ async function toRoadmap(
     ...(audience === 'staff' && milestone.localPreviewUrl ? { localPreviewUrl: milestone.localPreviewUrl } : {}),
     ...(audience === 'staff' && milestone.figmaUrl ? { figmaUrl: milestone.figmaUrl } : {}),
     ...(audience === 'staff' && milestone.designApprovedAt ? { designApprovedAt: milestone.designApprovedAt } : {}),
+    ...(audience === 'staff' ? { designGate: roadmapDesignGate(inputs, milestone) } : {}),
+    ...(audience === 'staff' ? roadmapDeployMark(milestone) : {}),
     creatorName: await creatorNameFor(ctx, milestone),
     ...(audience === 'staff' && milestone.createdVia ? { createdVia: milestone.createdVia } : {}),
     ...(audience === 'staff' && milestone.planning ? { planning: milestone.planning } : {}),
@@ -415,6 +438,7 @@ async function toRoadmap(
     ...(audience === 'staff' && milestone.branch ? { branch: milestone.branch } : {}),
     ...(audience === 'staff' && milestone.prUrl ? { prUrl: milestone.prUrl } : {}),
     ...(updatedAt != null ? { updatedAt } : {}),
+    ...(buildRun ? { buildRun } : {}),
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
     openCount: roadmap.openCount,
     doneCount: roadmap.doneCount,
@@ -1384,6 +1408,12 @@ async function applyMilestoneReview(
   };
 }
 
+/** The deploy mark for staff. A milestone with nothing to mark carries no key. */
+function roadmapDeployMark(milestone: Doc<'milestones'>): { deploy?: 'not-deployed' | 'deployed' } {
+  const mark = deployMark(milestone);
+  return mark === 'none' ? {} : { deploy: mark };
+}
+
 function peterPortalActor(identity: { role: string; email: string; contactId: string }) {
   if (identity.role !== 'Warehaus Staff' || !isPeterEmail(identity.email)) {
     fail('Only Peter can approve a milestone');
@@ -1431,7 +1461,114 @@ export const approveDesign = adminMutation({
     const at = Date.now();
     await ctx.db.patch(milestone._id, { designApprovedAt: at, designApproverContactId: contactId });
     await logMilestone(ctx, milestone, 'milestone.design_approved', at, 'Designs approved by Peter');
+    // Build tasks unlock; the Approve designs Ask is answered.
+    await syncDesignAsk(ctx, { ...milestone, designApprovedAt: at }, { addedBy: ctx.identity.email, at });
     return { ok: true as const, designApprovedAt: at, already: false };
+  },
+});
+
+/**
+ * Request design changes, beside Approve designs. Peter only. Adds top-level
+ * design tasks that say which design tasks they revise, answers the Approve
+ * designs Ask, and leaves the designs unapproved, so build stays locked.
+ * Status does not change.
+ */
+export async function applyDesignChanges(
+  ctx: MutationCtx,
+  input: {
+    milestoneId: Id<'milestones'>;
+    notes: string;
+    taskIds: readonly Id<'tasks'>[];
+    newTasks?: readonly string[];
+    actor: string;
+  },
+): Promise<{ ok: true; taskIds: Id<'tasks'>[] } | { ok: false; error: string }> {
+  const milestone = await ctx.db.get(input.milestoneId);
+  if (!milestone || milestone.archivedAt != null) return { ok: false, error: 'Milestone not found' };
+  const loaded = await loadMilestoneTaskSet(ctx, milestone);
+  if (!loaded.ok) return { ok: false, error: loaded.reason };
+  const byId = new Map(loaded.set.tasks.map((task) => [task.id as string, task]));
+  const revises = input.taskIds.map((id) => byId.get(id)?.doc.name).filter((name): name is string => Boolean(name));
+  const decision = requestDesignChangesDecision({
+    status: milestone.status,
+    designApprovedAt: milestone.designApprovedAt,
+    visual: designGate(loaded.set.tasks, null).visual,
+    notes: input.notes,
+    revises,
+    newTasks: input.newTasks,
+  });
+  if (!decision.ok) return { ok: false, error: decision.reason };
+  const siblings = await loadLinkedTasks(ctx, milestone);
+  if (!siblings.ok) return { ok: false, error: siblings.reason };
+  let order = nextMilestoneOrder(siblings.rows.map((task) => task.milestoneOrder));
+  const at = Date.now();
+  const round = currentIteration(milestone.iteration);
+  const created: Id<'tasks'>[] = [];
+  for (const [index, draft] of decision.drafts.entries()) {
+    const key = `${PORTAL_MILESTONE_TASK_SOURCE}:${milestone._id}:design:${at}:${index}`;
+    created.push(
+      await ctx.db.insert('tasks', {
+        orgId: milestone.orgId,
+        projectId: milestone.projectId,
+        notionPageId: key,
+        externalId: key,
+        lastSyncedAt: at,
+        name: draft.name,
+        description: draft.description,
+        descriptionSource: 'property' as const,
+        status: 'To Do',
+        isDone: NEW_ITERATION_TASK_DONE,
+        stage: stageForNewMilestoneTask(milestone.status),
+        publishToWarehaus: false,
+        source: PORTAL_MILESTONE_TASK_SOURCE,
+        origin: 'review',
+        round,
+        kind: 'design',
+        milestoneId: milestone._id,
+        milestoneOrder: order,
+        updatedAt: at,
+      }),
+    );
+    order += 1;
+  }
+  await ctx.db.insert('milestoneNotes', {
+    orgId: milestone.orgId,
+    milestoneId: milestone._id,
+    body: `Design changes requested by ${input.actor}: ${input.notes.trim()}`,
+    addedBy: input.actor,
+    createdAt: at,
+  });
+  await logMilestone(
+    ctx,
+    milestone,
+    'milestone.design_changes_requested',
+    at,
+    `Design changes requested · ${created.length === 1 ? '1 design task' : `${created.length} design tasks`} added`,
+  );
+  await syncDesignAsk(ctx, milestone, { addedBy: input.actor, at });
+  return { ok: true, taskIds: created };
+}
+
+export const requestDesignChanges = adminMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    notes: v.string(),
+    /** Design tasks the changes revise. */
+    taskIds: v.optional(v.array(v.id('tasks'))),
+    /** One design task per line. Without them the notes become one task. */
+    newTasks: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, args) => {
+    if (ctx.identity.role !== 'Warehaus Staff' || !isPeterEmail(ctx.identity.email)) fail(ONLY_PETER_DESIGN_CHANGES);
+    const result = await applyDesignChanges(ctx, {
+      milestoneId: args.milestoneId,
+      notes: args.notes,
+      taskIds: args.taskIds ?? [],
+      newTasks: args.newTasks,
+      actor: 'Peter',
+    });
+    if (!result.ok) fail(result.error);
+    return result;
   },
 });
 
@@ -2239,6 +2376,7 @@ export const reorderTasks = adminMutation({
     const current = await tasksOnMilestone(ctx, milestone);
     const decision = reorderDecision({
       staff: true,
+      milestoneStatus: milestone.status,
       current: current.map((row) => ({ id: row._id, milestoneOrder: row.milestoneOrder })),
       taskIds: args.taskIds,
     });
@@ -2508,20 +2646,15 @@ export const backfillTaskOrigins = internalMutation({
   },
 });
 
-/**
- * One-off: turns the notes still flagged with the old needs-Peter flag into
- * Asks waiting on Peter. Bounded: one indexed read of the old open index, at
- * most `limit` rows a call (default and cap in `_lib/askMigration.ts`). A
- * migrated row leaves that index, so run it again while `more` is true.
- *
- * Dry run, writes nothing:
- *   npx convex run milestones:migrateNeedsPeterToAsks
- * Apply, on the shared dev deployment first, after that deploy is current:
- *   npx convex run milestones:migrateNeedsPeterToAsks '{"apply":true}'
- * Production only after Peter's "deploy main", by the person doing that deploy.
- */
-export const migrateNeedsPeterToAsks = internalMutation({
-  args: { apply: v.optional(v.boolean()), limit: v.optional(v.number()) },
-  handler: async (ctx, args) =>
-    migrateNeedsPeterBatch(ctx, { apply: args.apply === true, limit: args.limit ?? ASK_MIGRATION_BATCH }),
+/** Staff set a milestone task's kind, Design or Build, from the task modal. */
+export const setTaskKind = adminMutation({
+  args: { taskId: v.id('tasks'), kind: v.union(v.literal('design'), v.literal('build')) },
+  handler: async (ctx, args) => {
+    if (ctx.identity.role !== 'Warehaus Staff') fail('Only staff can change a task kind');
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.archivedAt != null) fail('Task not found');
+    if (!task.milestoneId) fail(TASK_KIND_NEEDS_MILESTONE);
+    const result = await writeTaskKind(ctx, task, args.kind, { addedBy: ctx.identity.email, at: Date.now() });
+    return { ok: true as const, wrote: result.wrote };
+  },
 });

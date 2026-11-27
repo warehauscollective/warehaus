@@ -12,6 +12,8 @@ import { PortalModal } from '@/components/ui/PortalModal';
 import { OutlineButton } from '@/components/ui/primitives';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { StatusMenu } from './milestoneDetailsEdit';
+import { useBuildRunState } from './BuildingIndicator';
+import { DesignChangesDialog, type DesignChangesInput } from './DesignChangesDialog';
 import { TileStatusControl, useMilestoneStatusMoves } from './MilestoneStatusControl';
 import { APPROVE_CONFIRM_COPY, APPROVE_CONFIRM_TITLE, RECORDING_APPROVAL, SAVING_APPROVAL_COPY } from './MilestoneReview';
 import {
@@ -151,7 +153,8 @@ function initialTileMenu(preview?: string | null): boolean {
 const TILE_LINK_SAVE_ERROR = 'Couldn’t save the link. Nothing changed.';
 
 export const DESIGN_CONFIRM_TITLE = 'Approve the designs for this milestone?';
-export const DESIGN_CONFIRM_COPY = 'Records that you approved the designs. The runner can start building.';
+export const DESIGN_CONFIRM_COPY = 'Records your approval. Build tasks unlock and the runner starts building them.';
+export const DESIGN_WAITING_NOTE = 'Waiting on design approval';
 
 /** Under the chip once Peter approved: "Designs approved · Peter · Nov 25". */
 export function designsApprovedLine(at: number): string {
@@ -169,6 +172,7 @@ export function MilestoneListCard({
   onAdvance,
   onApprove,
   onApproveDesign,
+  onRequestDesignChanges,
   onSetLink,
   openConfirm = false,
   phone = false,
@@ -192,6 +196,8 @@ export function MilestoneListCard({
   onApprove?: (iteration: number) => Promise<unknown>;
   /** Peter's Approve designs, before build. */
   onApproveDesign?: () => Promise<unknown>;
+  /** Peter's Request design changes, beside Approve designs. */
+  onRequestDesignChanges?: (input: DesignChangesInput) => Promise<unknown>;
   /** Staff set or clear a tile link. Empty url clears it. */
   onSetLink?: (field: TileLinkField, url: string | null) => void | Promise<unknown>;
   /** Fixture QA opens the one confirm without a click. */
@@ -223,6 +229,7 @@ export function MilestoneListCard({
   const [deploying, setDeploying] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
   const [designConfirm, setDesignConfirm] = useState(false);
+  const [designChangesOpen, setDesignChangesOpen] = useState(false);
   const [approvingDesign, setApprovingDesign] = useState(false);
   const [designError, setDesignError] = useState<string | null>(null);
   useEffect(() => {
@@ -322,6 +329,7 @@ export function MilestoneListCard({
     onSet: (next, expected) => onSetStatus?.(next, expected),
   });
   const stage = milestoneTileStatus({ status: moves.shown });
+  const buildState = useBuildRunState(moves.shown, milestone.buildRun, staff);
   const subtasks = boardTaskCounts(milestone).nested;
   const awaitingMerge = staff && milestone.approval === 'approved' && milestone.status !== 'Shipped';
   const dateLine = milestoneTileHeadline({
@@ -399,9 +407,12 @@ export function MilestoneListCard({
       }}
       buttonRef={chipRef}
       bare={canDeploy || canApproveDesign || designApproved}
+      buildState={buildState}
+      phase={milestone.designGate?.phase}
+      deploy={milestone.deploy}
     />
   ) : (
-    <StatusChip label={stage.label} glyph={stage.glyph} />
+    <StatusChip label={stage.label} glyph={stage.glyph} live={buildState === 'live'} />
   );
   const approveButton = canDeploy ? (
     <button
@@ -423,6 +434,31 @@ export function MilestoneListCard({
       Approve designs
     </button>
   ) : null;
+  // Request design changes sits under Approve designs on a visual milestone.
+  const canRequestDesignChanges = canApproveDesign && milestone.designGate?.visual === true && Boolean(onRequestDesignChanges);
+  const designWaitingNote =
+    canApproveDesign && milestone.designGate?.phase === 'design-approval' ? (
+      <p
+        data-testid="tile-design-waiting"
+        className="ds-mono"
+        style={{ margin: 0, padding: '8px 12px', fontSize: 12, lineHeight: '18px', color: 'var(--muted)', borderTop: '1px solid var(--border-2)' }}
+      >
+        {DESIGN_WAITING_NOTE}
+      </p>
+    ) : null;
+  const requestDesignChangesButton = canRequestDesignChanges ? (
+    <button
+      type="button"
+      data-testid="tile-request-design-changes"
+      onClick={() => { setStageMenuOpen(false); setConfirm(false); setDesignConfirm(false); setDesignChangesOpen(true); }}
+      style={{ width: '100%', height: 36, border: 0, borderTop: '1px solid var(--border-2)', borderRadius: 0, background: 'transparent', color: 'var(--fg)', fontSize: 13, cursor: 'pointer' }}
+    >
+      Request design changes
+    </button>
+  ) : null;
+  const designTasks = milestone.rows
+    .filter((row) => row.kind === 'design')
+    .map((row) => ({ id: row.id, name: row.name }));
   const designApprovedStrip = designApproved && milestone.designApprovedAt ? (
     <p
       data-testid="tile-designs-approved"
@@ -548,13 +584,15 @@ export function MilestoneListCard({
             >
               {stageTrigger}
               {approveButton}
+              {designWaitingNote}
               {approveDesignButton}
+              {requestDesignChangesButton}
               {designApprovedStrip}
             </div>
           ) : stageTrigger}
           {staff && stageMenuOpen && !phoneSheet ? (
             <TileStagePopover anchorRef={menuAnchorRef}>
-              <StatusMenu current={stage.label} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={closeStageMenu} />
+              <StatusMenu current={stage.label} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={closeStageMenu} buildState={buildState} phase={milestone.designGate?.phase} />
             </TileStagePopover>
           ) : null}
         </div>
@@ -740,6 +778,15 @@ export function MilestoneListCard({
           </div>
         </PortalModal>
       ) : null}
+      {designChangesOpen && onRequestDesignChanges ? (
+        <DesignChangesDialog
+          designTasks={designTasks}
+          onSend={onRequestDesignChanges}
+          onClose={() => setDesignChangesOpen(false)}
+          narrow={phone || viewportSheet}
+          cover={cover}
+        />
+      ) : null}
       {staff && stageMenuOpen && phoneSheet ? (
         <PortalModal
           testId="tile-stage-menu"
@@ -751,7 +798,7 @@ export function MilestoneListCard({
           showFooter={false}
           cover={cover}
         >
-          <StatusMenu current={stage.label} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={closeStageMenu} sheet />
+          <StatusMenu current={stage.label} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={closeStageMenu} buildState={buildState} phase={milestone.designGate?.phase} sheet />
         </PortalModal>
       ) : null}
     </article>

@@ -1,0 +1,127 @@
+name: portal-deploy
+
+# Deploy to main (ADR-0009). Started only by the Portal when Peter presses
+# Deploy to main. Deploys Convex production, then Vercel production, from one
+# commit on main, and reports each step back to the Portal.
+#
+# Secrets come from the protected `production` environment, which is limited
+# to this workflow on main:
+#   CONVEX_DEPLOY_KEY      production deploy key for unique-turtle-383
+#   VERCEL_TOKEN           token that can deploy the warehaus-portal project
+#   DEPLOY_REPORT_SECRET   the same value set on production Convex
+# Setup steps: docs/deploy-to-main-setup.md. No agent runs this by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Commit on main to deploy
+        required: true
+        type: string
+      run_id:
+        description: Portal deploy run id
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# One deploy at a time. A second run waits; it never cancels one in flight.
+concurrency:
+  group: portal-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy main to production
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      # Inputs are read from the environment, never pasted into a script.
+      DEPLOY_SHA: ${{ inputs.sha }}
+      DEPLOY_RUN_ID: ${{ inputs.run_id }}
+      DEPLOY_REPORT_SECRET: ${{ secrets.DEPLOY_REPORT_SECRET }}
+      # The Portal's report route on production Convex: /deploy-run
+      DEPLOY_REPORT_URL: https://unique-turtle-383.convex.site/deploy-run
+      WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Check the inputs
+        run: |
+          set -euo pipefail
+          case "$DEPLOY_SHA" in
+            *[!0-9a-f]*|"") echo "sha must be a full lower-case commit sha"; exit 1 ;;
+          esac
+          [ "${#DEPLOY_SHA}" -eq 40 ] || { echo "sha must be 40 characters"; exit 1; }
+          [ -n "$DEPLOY_RUN_ID" ] || { echo "run_id is required"; exit 1; }
+          [ -n "$DEPLOY_REPORT_SECRET" ] || { echo "DEPLOY_REPORT_SECRET is not set in the production environment"; exit 1; }
+          # Nothing has deployed yet. A failure from here names the Convex step.
+          echo "DEPLOY_STEP=convex" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Check out the commit, from main only
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$DEPLOY_SHA" origin/main || { echo "$DEPLOY_SHA is not on main"; exit 1; }
+          git checkout --detach "$DEPLOY_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Report started
+        run: node scripts/deploy-report.mjs started
+
+      - name: Deploy Convex production
+        working-directory: apps/portal
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          case "$CONVEX_DEPLOY_KEY" in
+            prod:*) ;;
+            *) echo "CONVEX_DEPLOY_KEY must be a production deploy key"; exit 1 ;;
+          esac
+          npx convex deploy --yes
+          # The deploy regenerates the API types. Vercel builds from the commit as it is.
+          git checkout -- convex/_generated
+
+      - name: Report Convex deployed
+        run: |
+          echo "DEPLOY_STEP=vercel" >> "$GITHUB_ENV"
+          node scripts/deploy-report.mjs convex_ok
+
+      - name: Deploy Vercel production
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          # Team warehaus-collective, project warehaus-portal. Ids, not secrets.
+          VERCEL_ORG_ID: team_gk8AwUegrHijeRwyTvHBsWhO
+          VERCEL_PROJECT_ID: prj_5QsXPIEeRT2NCFovhsV3wqMt3bW5
+        run: |
+          set -euo pipefail
+          [ -z "$(git status --porcelain)" ] || { echo "The checkout is not clean"; git status --short; exit 1; }
+          npx --yes vercel@50.14.0 deploy --prod --yes --token "$VERCEL_TOKEN"
+
+      - name: Report Vercel deployed
+        run: node scripts/deploy-report.mjs vercel_ok
+
+      - name: Report the failure
+        if: failure()
+        run: |
+          if [ -f scripts/deploy-report.mjs ] && command -v node >/dev/null; then
+            node scripts/deploy-report.mjs failed
+          else
+            curl -fsS --retry 3 -X POST "$DEPLOY_REPORT_URL" \
+              -H "Authorization: Bearer $DEPLOY_REPORT_SECRET" \
+              -H "Content-Type: application/json" \
+              -d "{\"runId\":\"$DEPLOY_RUN_ID\",\"sha\":\"$DEPLOY_SHA\",\"event\":\"failed\",\"step\":\"${DEPLOY_STEP:-convex}\",\"url\":\"$WORKFLOW_URL\"}"
+          fi

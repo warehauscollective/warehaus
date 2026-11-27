@@ -4,6 +4,7 @@
  * Approval does not close, delete, or rewrite tasks.
  */
 
+import type { BuildRunFacts } from './buildRun';
 import { clientMaySeeProject } from '@warehaus/portal-sync';
 import {
   DEFAULT_MILESTONE_STATUS,
@@ -12,6 +13,7 @@ import {
   isMilestoneStatus,
   type MilestoneStatus,
 } from './milestoneStatus';
+import type { BuildingPhase, TaskKind } from './designGate';
 import type { MilestoneCreatedVia, TaskOrigin } from './milestoneTasks';
 import { classifyMilestoneTasks, roadmapCounts, taskSetGroups } from './milestoneTaskSet';
 
@@ -21,6 +23,7 @@ export const MILESTONE_ACTIVITY = {
   ready: 'milestone.ready',
   approved: 'milestone.approved',
   designApproved: 'milestone.design_approved',
+  designChangesRequested: 'milestone.design_changes_requested',
   changesRequested: 'milestone.changes_requested',
   status: 'milestone.status',
   publish: 'milestone.publish',
@@ -298,11 +301,13 @@ export type RoadmapTaskInput = {
   source?: string | null;
   origin?: TaskOrigin | null;
   round?: number | null;
+  kind?: TaskKind | null;
   portalOwned?: boolean;
   detail?: string | null;
   runner?: string | null;
   commit?: string | null;
   blockedReason?: string | null;
+  nextAction?: string | null;
 };
 
 export type RoadmapChild = {
@@ -318,6 +323,8 @@ export type RoadmapChild = {
   origin?: TaskOrigin;
   /** Staff only. Review iteration that asked for the task. */
   round?: number;
+  /** Staff only, and only on a design task. A task with no kind is build. */
+  kind?: 'design';
   /** Staff only. True when the portal owns the task, so it can be edited and removed here. */
   portalOwned?: boolean;
   /** Staff only, and only on a task the portal owns. */
@@ -328,6 +335,8 @@ export type RoadmapChild = {
   commit?: string;
   /** Staff only. Why the runner stopped on the task. */
   blockedReason?: string;
+  /** Staff only. The task's next action. On a Blocked task it is what the task is waiting on. */
+  nextAction?: string;
   archived?: boolean;
   /** True only when this task's milestoneId is the milestone being shown. */
   onMilestone?: boolean;
@@ -365,11 +374,13 @@ function roadmapTask(
     ...(audience === 'staff' && task.source ? { source: task.source } : {}),
     ...(audience === 'staff' && task.origin ? { origin: task.origin } : {}),
     ...(audience === 'staff' && task.round != null ? { round: task.round } : {}),
+    ...(audience === 'staff' && task.kind === 'design' ? { kind: 'design' as const } : {}),
     ...(audience === 'staff' && task.portalOwned ? { portalOwned: true } : {}),
     ...(audience === 'staff' && task.portalOwned && task.detail ? { detail: task.detail } : {}),
     ...(audience === 'staff' && task.runner ? { runner: task.runner } : {}),
     ...(audience === 'staff' && task.commit ? { commit: task.commit.slice(0, 7) } : {}),
     ...(audience === 'staff' && task.blockedReason ? { blockedReason: task.blockedReason } : {}),
+    ...(audience === 'staff' && task.nextAction ? { nextAction: task.nextAction } : {}),
   };
 }
 
@@ -470,7 +481,7 @@ export function milestoneActivityInsert(input: {
     ...(input.summary ? { summary: input.summary } : {}),
     type: input.type,
     tone:
-      input.type === 'milestone.changes_requested'
+      input.type === 'milestone.changes_requested' || input.type === 'milestone.design_changes_requested'
         ? 'warn'
         : input.type === 'milestone.approved' || input.type === 'milestone.design_approved'
           ? 'success'
@@ -604,6 +615,10 @@ export type MilestoneRoadmapView = {
   figmaUrl?: string | null;
   /** Staff only. When Peter approved the design. Absent for clients and until he approves. */
   designApprovedAt?: number;
+  /** Staff only. The design gate: whether build waits, and the Building phase. */
+  designGate?: { visual: boolean; buildLocked: boolean; phase: BuildingPhase };
+  /** Staff only. On a Shipped milestone with a recorded merge: whether a deploy run has covered it. */
+  deploy?: 'not-deployed' | 'deployed';
   /** Staff only. Where the milestone was created. Absent for clients, including the key. */
   createdVia?: MilestoneCreatedVia;
   /** Staff only. A planning job waiting for, held by, or blocked on a runner. */
@@ -616,6 +631,11 @@ export type MilestoneRoadmapView = {
   prUrl?: string;
   /** Staff only, and only while Planning or Building. When the milestone last changed. */
   updatedAt?: number;
+  /**
+   * Only while Building: whether a run is going and its last sign of life,
+   * for the Building indicator. Clients get no `blocked`.
+   */
+  buildRun?: BuildRunFacts;
 };
 
 export type MilestoneReviewHistoryItem = {

@@ -69,6 +69,12 @@ function report(type, fields = {}) {
  */
 const control = { paused: false, wake: null, changed: 0 };
 
+/**
+ * The runs in progress, sent with every ping so each gets a sign of life
+ * (protocol 4). Set once the run slots exist in main().
+ */
+let heldRuns = () => [];
+
 function listenForCommands() {
   const lines = createInterface({ input: process.stdin });
   lines.on('line', (line) => {
@@ -214,11 +220,18 @@ async function doTask(config, work) {
   const dir = ensureWorktree(checkoutFor(work), work.milestone.branch);
   const notes = join(dir, '.runner');
   rmSync(join(notes, 'blocked.txt'), { force: true });
+  rmSync(join(notes, 'design-done.txt'), { force: true });
   const before = git(dir, ['rev-parse', 'HEAD']).out;
   const ran = await runClaude(config, dir, taskPrompt(readFileSync(join(prompts, 'task.md'), 'utf8'), work), work.runId);
   const after = git(dir, ['rev-parse', 'HEAD']).out;
   const limit = usageLimitFrom(ran.tail);
-  const outcome = taskOutcome({ before, after, blockedReason: readIfPresent(join(notes, 'blocked.txt')), usageLimit: limit });
+  const outcome = taskOutcome({
+    before,
+    after,
+    blockedReason: readIfPresent(join(notes, 'blocked.txt')),
+    usageLimit: limit,
+    designDone: work.task.kind === 'design' ? readIfPresent(join(notes, 'design-done.txt')) : '',
+  });
   if (outcome.status === RELEASED) {
     // The work so far stays in the worktree. The next run on this milestone carries on from it.
     holdForUsage(limit);
@@ -319,7 +332,7 @@ function waitIdle(config, ms) {
     sleep: wakeableSleep,
     // A run that ends frees a slot, so the wait ends too.
     stopped: () => control.paused !== pausedAtStart || control.changed !== changedAtStart,
-    ping: () => client(config).ping({ paused: control.paused }),
+    ping: () => client(config).ping({ paused: control.paused, held: heldRuns() }),
   });
 }
 
@@ -333,7 +346,7 @@ async function waitBusy(config, ms = HEARTBEAT_MS) {
   const pausedAtStart = control.paused;
   await wakeableSleep(ms);
   if (control.changed !== changedAtStart || control.paused !== pausedAtStart) return;
-  await client(config).ping().catch((error) => say(error.message));
+  await client(config).ping({ held: heldRuns() }).catch((error) => say(error.message));
 }
 
 /** How long a GitHub sign-in check is trusted before `gh auth status` runs again. */
@@ -459,6 +472,7 @@ async function main() {
   say(`Runner ${config.id} · ${config.mode} · ${serves} · ${new URL(config.url).hostname}`);
   report('started', { runnerId: config.id, production: config.production, paused: control.paused });
   const slots = runSlots(parsed.options.parallel);
+  heldRuns = () => slots.held();
   if (slots.size > 1) say(`Works up to ${slots.size} milestones at once`);
 
   /** One run in its own slot. It reports working and finished with its run id, then frees the slot. */

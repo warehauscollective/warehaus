@@ -9,7 +9,7 @@
  *   POST /agent/complete  end a task run, or a planning run that failed
  *   POST /agent/release   hand a task or planning run back untouched (Claude hit its usage limit)
  *   POST /agent/build     progress from the one Cursor agent on a milestone
- *   POST /agent/ping      an idle runner saying it is alive. Reads and hands out nothing
+ *   POST /agent/ping      the runner saying it is alive, with the runs it holds (protocol 4). Hands out nothing
  *   POST /agent/app-release  the latest runner app build, for the app to update itself between runs
  *   POST /agent/unpair    a registered runner revoking itself (Remove this runner in the Mac app)
  *
@@ -35,6 +35,7 @@ import {
   RUNNER_OUT_OF_DATE,
 } from './_lib/runnerRegistry';
 import { sha256Hex } from './_lib/tokenCrypto';
+import { SIGN_OF_LIFE_PROTOCOL } from './_lib/buildRun';
 
 export const AGENT_ROUTES = [
   '/agent/claim',
@@ -88,11 +89,15 @@ export const agentHttp = httpAction(async (ctx, request) => {
 
   // The runner app sends `paused` on every call; an older runner sends nothing.
   const paused = typeof body.paused === 'boolean' ? body.paused : undefined;
+  // Protocol 4: claims and pings list the runs the runner holds, and each gets a sign of life.
+  const signsOfLife = protocolVersion >= SIGN_OF_LIFE_PROTOCOL;
+  const held = signsOfLife && Array.isArray(body.held) ? heldRunIds(body.held) : [];
   const alive = await ctx.runMutation(internal.agent.touchRunner, {
     runnerId,
     tokenHash: await sha256Hex(bearer),
     protocolVersion,
     ...(paused !== undefined ? { paused } : {}),
+    ...(held.length ? { alive: held } : {}),
   });
   if (!alive.ok) return json({ error: alive.error }, alive.status);
 
@@ -123,6 +128,7 @@ export const agentHttp = httpAction(async (ctx, request) => {
       // Parallel runs (protocol 3). A runner that sends neither works one run at a time.
       ...(typeof body.slots === 'number' ? { slots: runnerSlots(body.slots) } : {}),
       ...(Array.isArray(body.held) ? { held: heldRunIds(body.held) } : {}),
+      ...(signsOfLife ? { signsOfLife: true } : {}),
     });
     return json(result, 200);
   }

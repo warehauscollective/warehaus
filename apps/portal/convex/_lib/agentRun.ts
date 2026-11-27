@@ -7,6 +7,7 @@
 
 import { COMPLETE_STATUSES, type CompleteStatus } from '@warehaus/runner-protocol';
 import { isBlockedTask } from './milestoneTasks';
+import { RUN_SILENT_BLOCK_AFTER_MS } from './buildRun';
 
 export const RUNNER_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
 export const RUNNER_UNAUTHORIZED = 'Unauthorized';
@@ -225,7 +226,7 @@ export function recentPlanningRuns(
   return runs.filter((run) => run.kind === 'planning' && now - run.startedAt < PLANNING_RATE_WINDOW_MS).length;
 }
 
-/** A run whose runner has been quiet this long is released back to To do. */
+/** A run from a runner older than protocol 4 is blocked after its runner has been quiet this long. A protocol 4 run uses RUN_SILENT_BLOCK_AFTER_MS (15 minutes without a sign of life). */
 export const STUCK_RUN_AFTER_MS = 30 * 60_000;
 /** Running runs looked at per sweep. */
 export const STUCK_RUN_SCAN = 25;
@@ -238,10 +239,28 @@ export function cursorBuildTooLong(input: { agentStartedAt?: number | null; star
   return input.now - (input.agentStartedAt ?? input.startedAt) >= CURSOR_BUILD_MAX_MS;
 }
 
-export function runIsStuck(input: { lastSeenAt: number | null | undefined; startedAt: number; now: number }): boolean {
+/**
+ * A run from a protocol 4 runner carries its own sign of life (`aliveAt`) and
+ * is stuck 15 minutes after the last one. An older run has none and keeps the
+ * 30-minute rule on the runner's last call (decision 0014).
+ */
+export function runIsStuck(input: {
+  lastSeenAt: number | null | undefined;
+  startedAt: number;
+  now: number;
+  aliveAt?: number | null;
+}): boolean {
+  if (input.aliveAt != null) return input.now - input.aliveAt >= RUN_SILENT_BLOCK_AFTER_MS;
   const last = Math.max(input.lastSeenAt ?? 0, input.startedAt);
   return input.now - last >= STUCK_RUN_AFTER_MS;
 }
+
+/** The reason a stuck run is blocked with, shown on the task and in its Ask. */
+export function stuckRunReason(aliveAt: number | null | undefined): string {
+  return aliveAt != null ? STALLED_RUN_REASON : QUIET_RUN_REASON;
+}
+export const QUIET_RUN_REASON = 'Runner went quiet for 30 minutes';
+export const STALLED_RUN_REASON = 'Stalled: no sign of life from the runner for 15 minutes';
 
 /**
  * How long a run the Portal ended on its own still holds the milestone. The

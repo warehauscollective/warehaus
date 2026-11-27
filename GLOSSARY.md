@@ -38,11 +38,67 @@ _Avoid_: milestone tasks, linked tasks, close set
 A milestone moving from one Status to another. Every status change passes the same gate, writes one activity row, and runs what that status asks for on the way in and out, such as Peter's approval note on entering Ready to Ship. The cause says why it moved: set by a person or the staff API, play, Mark complete, a merge, or a review asking for changes.
 _Avoid_: status write, transition, status update
 
+**Task board**:
+The tasks of one milestone or one project as cards in columns. A milestone's task board is its Tasks tab and has four status columns: To Do, In Progress, Blocked and Done. Staff open a task from its card and move a card to another column to change its status. Clients see the board read-only, and a Shipped milestone's board is read-only for everyone.
+_Avoid_: checklist, task list, kanban
+
+**Run order**:
+The order a milestone's tasks are worked in: the To Do column of its task board, top first. Staff change it by reordering To Do, except while the milestone is Building.
+_Avoid_: task order, queue, priority
+
+**Milestone branch**:
+The one branch a milestone's code lives on, `milestone/<slug>`. Every task commits straight to it, and it has one pull request into `main`. At Ready to Ship every task is on it, and its previews run from it.
+_Avoid_: feature branch, task branch, sub-branch
+
+**Ship**:
+Peter's move of a milestone to Shipped in the Portal, after a confirm step. For a milestone with an open pull request it merges that pull request into `main`, counts as his approval, and deploys nothing. Only Peter can do it. ADR-0009.
+_Avoid_: Ship and deploy (the one-press button from ADR-0007, replaced), release, ship it
+
+**Merge run**:
+One run of the GitHub workflow that Ship starts: merge `main` into the milestone branch, check the merged code, then squash-merge. The milestone shows Shipped only when it succeeds. A failed merge run adds a task and sends the milestone back to Building.
+_Avoid_: ship run, release pipeline
+
+**Deploy to main**:
+The button on a project's page that only Peter can press, after a confirm step. It deploys `main` to production, which releases every Shipped milestone not yet deployed. Next to it a counter shows how many are waiting. It shows only on a project with a deploy set up (Warehaus Portal for now). ADR-0009.
+_Avoid_: deploy button, release button, "deploy main" in chat (retired 2026-11-27, when the button went live)
+
+**Deploy run**:
+One run of the GitHub workflow that Deploy to main starts: deploy Convex, then Vercel, from one `main` commit. A project has at most one at a time. A failed deploy run opens an Ask on Peter, and Retry runs it again from the same commit.
+_Avoid_: deploy job, ship run
+
+**Deploy notes**:
+What a milestone's release needs beyond its code, such as a new table, a new secret or a one-off migration. The runner writes them at Ready to Ship and staff can edit them. A note can mark a manual step, which Peter must tick in the Deploy to main confirm step before the button works.
+_Avoid_: release notes, changelog
+
+**Deployed commit**:
+The `main` commit a project's production is running, saved by each successful deploy run. Every milestone merged at or before it counts as deployed.
+_Avoid_: release, live version
+
+**Not deployed**:
+The mark staff see on a Shipped milestone whose merge is later than the deployed commit. These are what the Deploy to main counter counts. Clients see such a milestone as Ready to Ship until it is deployed.
+_Avoid_: pending release, unreleased
+
 ## Tasks
 
 **Task change**:
 An edit to one or more fields of one task by staff, the staff API, a merged pull request, or closeout. A task change is saved in the portal at once and holds against any older Notion edit. When the task has a Notion page and write-back is allowed, it is also written back; otherwise it stays in the portal and says so. A task change is checked whole: every field is saved, or none.
 _Avoid_: task update, field save, task write, move
+
+**Task kind**:
+Design or Build. A design task works in Figma and never changes code; a build task changes code. A task with no kind reads as Build. ADR-0008.
+_Avoid_: task type, design flag
+
+**Visual milestone**:
+A milestone with at least one design task that is top level, not archived and not Parked. Its build tasks wait for design approval.
+_Avoid_: design milestone, UI milestone
+
+**Design approval**:
+Peter's Approve designs on a visual milestone. It records who and when, unlocks build and closes the Approve designs Ask. It never moves Status, merges or deploys. Request design changes is the other answer: it adds design tasks and keeps build locked.
+_Avoid_: design sign-off, design review
+
+**Building phase**:
+What Building shows after it on a visual milestone: Designs while a design task is open, Waiting on design approval once they are all done, then plain Build. Derived from the tasks and the approval, never stored.
+_Avoid_: build stage, design status
 
 **Pending stage**:
 A task's stage that a task change moved and Notion has not confirmed yet. It stays pending until Notion confirms it, a newer Notion edit replaces it, or a move back onto the stage Notion has settles it. Only a stage can be pending; other fields are protected by their stamp.
@@ -71,6 +127,18 @@ _Avoid_: runner token, runner allowlist
 **Planning run**:
 A read-only run that reads a milestone and its repository and drafts 3 to 10 tasks for staff to review. It never changes code and always uses Claude Code.
 _Avoid_: planner job, auto-plan
+
+**Building indicator**:
+The mark beside a Building milestone's status. It pulses while a run is going; otherwise the status reads Building · Queued, Building · Blocked or, for staff, Building · Stalled. Clients see only the pulse.
+_Avoid_: spinner, progress light
+
+**Sign of life**:
+The runner telling the Portal a run it holds is still going, sent with its claims and pings (protocol 4). The Portal keeps the time of the last one on the run, written at most once a minute.
+_Avoid_: heartbeat (that is the runner itself being online), keepalive
+
+**Stalled**:
+A run with no sign of life for 5 minutes. The milestone shows Building · Stalled to staff; after 15 minutes the stuck sweep blocks the run.
+_Avoid_: hung, frozen, stuck (stuck is the older 30-minute quiet-runner rule)
 
 **Build agent**:
 The tool a project builds its milestones with: Claude Code or a Cursor cloud agent. Staff choose it per project; planning does not use it.

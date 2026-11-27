@@ -39,12 +39,23 @@ import { type RoadmapProject, type MilestoneActivityItem, type ResourceChoice, t
 import { ActivityList } from './roadmapParts';
 import { MoreMenu, EditDialog } from './MilestoneForms';
 import { MilestoneLoopLive, fixtureLoopModel, loopSubtitleLine, milestoneLoopSubtitle } from './MilestoneLoop';
-import { MilestoneChecklist, type ChecklistActions } from './MilestoneChecklist';
+import type { MilestoneTaskActions } from './milestoneBoard';
+import { milestoneNestedToOpen, milestoneTaskToOpen } from './milestoneBoard';
+import { MilestoneTaskBoard, type MoveTaskStatus } from './MilestoneTaskBoard';
 import type { TaskCloseoutActions } from '@/components/closeout/closeoutActions';
 import type { ArchivedTask } from './ArchivedView';
 import { MilestoneRunFeedLive } from './MilestoneRunFeed';
 
 type MilestoneTab = 'overview' | 'tasks' | 'activity' | 'reviews';
+
+export const TASKS_TITLE = 'Tasks';
+
+/** Figma P04 heading. The count shows at 1440 only; the phone board panel carries it. */
+export function tasksSubtitle(input: { count: number; phone: boolean }): string {
+  const base = 'Work needed to complete this milestone';
+  if (input.phone) return base;
+  return `${base} · ${input.count === 1 ? '1 task' : `${input.count} tasks`}`;
+}
 
 type MilestoneMutations = {
   save: (args: {
@@ -109,7 +120,9 @@ type MilestoneMutations = {
   }) => Promise<{ ok: boolean; reason?: string }>;
   clearPreviewLink?: (args: { hostSlug?: string; milestoneId: Id<'milestones'> }) => Promise<unknown>;
   /** Task writes on the Tasks tab. Absent in fixture previews. */
-  tasks?: ChecklistActions;
+  tasks?: MilestoneTaskActions;
+  /** A card's status move on the Tasks board. Absent in fixture previews. */
+  moveTaskStatus?: MoveTaskStatus;
 };
 
 export function MilestoneDetail(props: {
@@ -125,7 +138,8 @@ export function MilestoneDetail(props: {
   preview?: string | null;
   activity?: readonly MilestoneActivityItem[];
   activityError?: string | null;
-  onOpenTask?: (task: PortalTask) => void;
+  /** `nested` is the task's child tasks on this milestone, for the task modal's list. */
+  onOpenTask?: (task: PortalTask, nested?: PortalTask[]) => void;
   resourceChoices: ResourceChoice[];
   onBack: () => void;
   onBackToProjects?: () => void;
@@ -153,6 +167,7 @@ export function MilestoneDetail(props: {
   const editTask = useMutation(api.milestones.editTask);
   const removeTask = useMutation(api.milestones.removeTask);
   const reorderTasks = useMutation(api.milestones.reorderTasks);
+  const moveTaskStatus = useMutation(api.tasks.moveStatus);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadedTargets, setLoadedTargets] = useState<MoveTarget[]>([]);
   const [moveListOpen, setMoveListOpen] = useState(false);
@@ -224,7 +239,7 @@ export function MilestoneDetail(props: {
           />
         ) : null
       }
-      mutations={{ save, setPublish, setStatus, advance, setOwner, setDueDate, setTileLink, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink, tasks: { addTask, editTask, removeTask, reorderTasks } }}
+      mutations={{ save, setPublish, setStatus, advance, setOwner, setDueDate, setTileLink, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink, tasks: { addTask, editTask, removeTask, reorderTasks }, moveTaskStatus }}
     />
   );
 }
@@ -279,7 +294,8 @@ export function MilestoneDetailView({
   onLoadMoreTargets?: () => void;
   activity?: readonly MilestoneActivityItem[];
   activityError?: string | null;
-  onOpenTask?: (task: PortalTask) => void;
+  /** `nested` is the task's child tasks on this milestone, for the task modal's list. */
+  onOpenTask?: (task: PortalTask, nested?: PortalTask[]) => void;
   resourceChoices: ResourceChoice[];
   onBack: () => void;
   onBackToProjects?: () => void;
@@ -299,6 +315,7 @@ export function MilestoneDetailView({
   const [busy, setBusy] = useState(false);
   // The review card has its own phone layout. It does not follow CSS breakpoints.
   const phone = useMaxWidth(767);
+  const tasksPage = tab === 'tasks';
   const locked = milestone.approval === 'approved';
   const total = taskTotal(milestone);
   const recordBoard = boardTaskCounts(milestone);
@@ -363,15 +380,42 @@ export function MilestoneDetailView({
   return (
     <div className="flex flex-col gap-6">
       {onBackToProjects ? (
-        <ProjectBreadcrumb
-          back={{ label: `‹ ${project.name}`, onClick: onBack }}
-          trail={[
-            { label: 'Projects', onClick: onBackToProjects, testId: 'nav-breadcrumb-parent' },
-            { label: project.name, onClick: onBack, testId: 'nav-breadcrumb-middle' },
-            { label: 'Milestones', testId: 'nav-breadcrumb-current' },
-          ]}
-        />
+        tasksPage ? (
+          // Figma P04: Tasks is a page under the milestone. Back and the last crumb lead to its overview.
+          <ProjectBreadcrumb
+            back={{ label: `‹ ${milestone.name}`, onClick: () => setTab('overview') }}
+            trail={[
+              { label: 'Projects', onClick: onBackToProjects, testId: 'nav-breadcrumb-parent' },
+              { label: project.name, onClick: onBack, testId: 'nav-breadcrumb-middle' },
+              { label: milestone.name, onClick: () => setTab('overview'), testId: 'nav-breadcrumb-current' },
+            ]}
+          />
+        ) : (
+          <ProjectBreadcrumb
+            back={{ label: `‹ ${project.name}`, onClick: onBack }}
+            trail={[
+              { label: 'Projects', onClick: onBackToProjects, testId: 'nav-breadcrumb-parent' },
+              { label: project.name, onClick: onBack, testId: 'nav-breadcrumb-middle' },
+              { label: 'Milestones', testId: 'nav-breadcrumb-current' },
+            ]}
+          />
+        )
       ) : null}
+      {tasksPage ? (
+        <PageHeading
+          alignAction
+          testId="milestone-tasks-title"
+          title={TASKS_TITLE}
+          subtitle={tasksSubtitle({ count: board.lanes, phone })}
+          action={
+            phone ? undefined : (
+              <OutlineButton testId="milestone-tasks-overview" nowrap onClick={() => setTab('overview')}>
+                Milestone overview
+              </OutlineButton>
+            )
+          }
+        />
+      ) : (
       <PageHeading
         alignAction
         testId="milestone-name"
@@ -386,6 +430,7 @@ export function MilestoneDetailView({
         })()}
         action={staff && closeout ? <span data-testid="milestone-header-overflow" className="inline-flex">{closeout}</span> : undefined}
       />
+      )}
       <TabRow
         label="Milestone"
         idPrefix="milestone"
@@ -573,19 +618,23 @@ export function MilestoneDetailView({
           {tasksMenuFailure({ tab, error, editing }).show && error ? (
             <MenuActionError error={error} onDismiss={() => setError(null)} />
           ) : null}
-          <MilestoneChecklist
+          <MilestoneTaskBoard
             milestone={milestone}
+            project={project}
+            tasks={tasks}
             staff={staff}
             fixtures={fixtures}
             hostSlug={hostSlug}
             actions={mutations.tasks}
+            moveStatus={mutations.moveTaskStatus}
             archivedTasks={archivedTasks}
             taskCloseout={taskCloseout}
             onOpenTask={
               onOpenTask
                 ? (taskId) => {
-                    const task = tasks.find((item) => item.id === taskId);
-                    if (task) onOpenTask(task);
+                    const open = { taskId, milestone, tasks, project };
+                    const task = milestoneTaskToOpen(open);
+                    if (task) onOpenTask(task, milestoneNestedToOpen(open));
                   }
                 : undefined
             }

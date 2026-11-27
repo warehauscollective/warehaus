@@ -33,6 +33,7 @@ import {
   type MilestoneInbound,
   type WebhookDecision,
 } from '../_lib/inboundWebhook';
+import { deployTargetFor } from '../_lib/deploy';
 import { changeMilestoneStatus } from '../_lib/milestoneLifecycle';
 import { assertStaffPreviewLink } from '../_lib/previewLink';
 import { processedSyncEventPatch } from '../_lib/syncEventRetention';
@@ -243,6 +244,8 @@ async function applyMilestoneInbound(
   if (inbound.prTitle && milestone.previewPrTitle !== inbound.prTitle) patch.previewPrTitle = inbound.prTitle;
   if (milestone.previewBranch !== inbound.branch) patch.previewBranch = inbound.branch;
   if (milestone.previewCommit !== inbound.sha && milestone.status !== 'Shipped') patch.previewCommit = inbound.sha;
+  // The merge time is what marks a Shipped milestone Not deployed until a deploy run covers it.
+  if (inbound.merged && milestone.mergedAt == null) patch.mergedAt = now;
 
   if (Object.keys(patch).length > 0) await ctx.db.patch(milestone._id, patch);
   let shipped = false;
@@ -262,6 +265,10 @@ async function applyMilestoneInbound(
       },
     });
     shipped = moved.ok && moved.wrote && moved.status === 'Shipped';
+    // `main` moved: on a project with a deploy set up, list what now waits for Deploy to main.
+    if (deployTargetFor(project?.agentRepo)) {
+      await ctx.scheduler.runAfter(0, internal.deploys.refreshMain, { projectId: milestone.projectId });
+    }
   }
   if (Object.keys(patch).length === 0 && !shipped) return { wrote: false, shipped: false };
   return { wrote: true, shipped };

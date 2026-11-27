@@ -62,6 +62,7 @@ import { MilestoneListCard } from './MilestoneListCard';
 import { CreateMilestone } from './MilestoneForms';
 import { MilestoneDetail } from './MilestoneDetailView';
 import { RunnerHealth } from './RunnerStatus';
+import { DeployToMain } from './DeployToMain';
 
 export { lastReviewLabel, AWAITING_MERGE_LINE, clientTileDate, milestoneTileDate, milestoneTileHeadline, milestoneTileStatus, tileProgressLabel, tileMetaLine, resourceAudienceLine, milestoneDetachOptions, inclusiveProgressCopy } from './milestoneTile';
 export type { MilestoneActivityItem } from './milestoneTile';
@@ -173,6 +174,7 @@ export function ProjectRoadmap({
   const isPeter = isPeterEmail(auth.authUser?.email);
   const approveMilestone = useMutation(api.milestones.approve);
   const approveDesign = useMutation(api.milestones.approveDesign);
+  const requestDesignChanges = useMutation(api.milestones.requestDesignChanges);
   const setMilestoneStatus = useMutation(api.milestones.setStatus);
   const advanceMilestone = useMutation(api.milestones.advance);
   const setTileLink = useMutation(api.milestones.setTileLink);
@@ -239,7 +241,7 @@ export function ProjectRoadmap({
     setDetailsPreview(params.get('details'));
     setTileStagePreview(params.get('tileStage'));
     setTileLinkPreview(params.get('tileLink'));
-    setTileApprove(params.get('tiles') === 'ready');
+    setTileApprove(params.get('tiles') === 'ready' || params.has('gate'));
     if (params.get('create') === 'milestone') setCreateOpen(true);
     const pane = params.get('pane') ?? params.get('tab');
     if (pane === 'details' || pane === 'milestones' || pane === 'resources' || pane === 'activity') setProjectTab(pane);
@@ -417,6 +419,16 @@ export function ProjectRoadmap({
         }
         await approveDesign({ hostSlug, milestoneId: milestone.id as Id<'milestones'> });
       }}
+      onRequestDesignChanges={async ({ notes, taskIds, newTasks }) => {
+        if (fixtures) return;
+        await requestDesignChanges({
+          hostSlug,
+          milestoneId: milestone.id as Id<'milestones'>,
+          notes,
+          taskIds: taskIds as Id<'tasks'>[],
+          newTasks,
+        });
+      }}
       onSetLink={async (field, url) => {
         if (fixtures) {
           patchMilestone(
@@ -508,6 +520,7 @@ export function ProjectRoadmap({
                       hostSlug={hostSlug}
                       onAddRepo={page && details ? openRepoSetting : undefined}
                     />
+                    <DeployToMain projectId={project.id} staff={staff} fixtures={fixtures} live={live} hostSlug={hostSlug} />
                     <MilestoneListButton onClick={() => setCreateOpen(true)}>New milestone</MilestoneListButton>
                   </div>
                 )

@@ -32,6 +32,7 @@ import { CloseoutToastHost, showCloseoutToast } from '@/components/closeout/clos
 import { OverflowMenu, OverflowSheet, OverflowSheetItems, type OverflowAction } from '@/components/closeout/OverflowMenu';
 import { beginFieldSave, FIELD_SAVE_ERROR, finishFieldSave, idleField, retryFieldSave, type FieldAttempt } from './taskFieldSave';
 import type { TaskSourceLink } from './sourcePanelFixtures';
+import { TASK_KIND_LABELS, TASK_KINDS, taskKind, type TaskKind } from '@convex/_lib/designGate';
 
 function ReviewTag() {
   return (
@@ -127,6 +128,7 @@ export function TaskDetailModal({
   const [attach, setAttach] = useState(false);
   const [asideNote, setAsideNote] = useState<string | null>(null);
   const moveStatus = useMutation(api.tasks.moveStatus);
+  const setTaskKind = useMutation(api.milestones.setTaskKind);
   const setAssignee = useMutation(api.tasks.setAssignee);
   const setDueDate = useMutation(api.tasks.setDueDate);
   const moveTaskProject = useMutation(api.tasks.moveProject);
@@ -136,6 +138,19 @@ export function TaskDetailModal({
   // The header "…" menu. On a phone it is a sheet that takes the task sheet's place.
   const [overflowOpen, setOverflowOpen] = useState(false);
   const shownStatus = task ? displayedTaskStatus(task.status, task.stage) : '';
+  const [kindDraft, setKindDraft] = useState<{ id: string; kind: TaskKind } | null>(null);
+  const [kindError, setKindError] = useState<string | null>(null);
+  const shownKind: TaskKind = kindDraft && kindDraft.id === task?.id ? kindDraft.kind : taskKind(task ?? {});
+  const pickKind = (kind: TaskKind) => {
+    if (!task || kind === shownKind) return;
+    setKindDraft({ id: task.id, kind });
+    setKindError(null);
+    if (!live) return;
+    void setTaskKind({ hostSlug, taskId: task.id as Id<'tasks'>, kind }).catch((err) => {
+      setKindDraft(null);
+      setKindError(userFacingErrorMessage(err, 'Couldn’t change the kind. Nothing changed. Try again.'));
+    });
+  };
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (!attach) titleRef.current?.focus();
@@ -491,6 +506,39 @@ export function TaskDetailModal({
                 <Pill color={taskStatusColor(shownStatus, task.isDone)}>{shownStatus}</Pill>
               )}
             </Field>
+            {staff && task.milestoneId ? (
+              <Field label="Kind" row={phone}>
+                <div>
+                  <div role="radiogroup" aria-label="Kind" data-testid="task-kind" className="mt-1 inline-flex gap-1" style={{ padding: 2, border: '1px solid var(--border-2)', borderRadius: 9 }}>
+                    {TASK_KINDS.map((kind) => (
+                      <button
+                        key={kind}
+                        type="button"
+                        role="radio"
+                        aria-checked={shownKind === kind}
+                        data-testid={`task-kind-${kind}`}
+                        onClick={() => pickKind(kind)}
+                        className="focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2"
+                        style={{
+                          border: 0,
+                          borderRadius: 7,
+                          padding: '4px 12px',
+                          background: shownKind === kind ? 'var(--surface-2)' : 'transparent',
+                          color: shownKind === kind ? 'var(--fg)' : 'var(--muted)',
+                          font: 'inherit',
+                          fontSize: 14,
+                          lineHeight: '21px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {TASK_KIND_LABELS[kind]}
+                      </button>
+                    ))}
+                  </div>
+                  {kindError ? <p role="alert" style={{ margin: '4px 0 0', color: 'var(--danger-text)', fontSize: 13 }}>{kindError}</p> : null}
+                </div>
+              </Field>
+            ) : null}
             {staff || shownAssignee ? (
               <Field label="Assignee" row={phone}>
                 {staff ? (
