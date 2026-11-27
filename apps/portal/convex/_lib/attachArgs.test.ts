@@ -36,6 +36,7 @@ const functions: Record<string, Registered> = {
   'portalApi:updateMilestone': portalApi.updateMilestone as unknown as Registered,
   'portalApi:addComment': portalApi.addComment as unknown as Registered,
   'portalApi:addMilestoneNote': portalApi.addMilestoneNote as unknown as Registered,
+  'portalApi:requestDesignChanges': portalApi.requestDesignChanges as unknown as Registered,
   'portalApi:addLink': portalApi.addLink as unknown as Registered,
   'portalApi:attachTask': portalApi.attachTask as unknown as Registered,
   'portalApi:detachTask': portalApi.detachTask as unknown as Registered,
@@ -298,6 +299,12 @@ const writeTools: Record<string, Record<string, unknown>> = {
     notes: 'More space on mobile.',
     newTasks: ['Give the card more space at 390'],
     idempotencyKey: 'changes-1',
+  },
+  request_design_changes: {
+    milestoneId: 'milestones:1',
+    notes: 'Give the review card more room at 390.',
+    newTasks: ['Review card at 390'],
+    idempotencyKey: 'design-changes-1',
   },
 };
 

@@ -3,6 +3,7 @@
  * Grok Bot and Claude. Pure. No Convex imports.
  */
 
+import { parseTaskKind, TASK_KIND_INVALID, type TaskKind } from './designGate';
 import { PLAN_TASKS_MAX, PLAN_TASKS_MIN } from '@warehaus/runner-protocol';
 import type { MilestoneCreatedVia } from './milestoneTasks';
 
@@ -21,7 +22,7 @@ const TITLE_LIMIT = 200;
 const DETAIL_LIMIT = 4000;
 const NOTE_LIMIT = 4000;
 
-export type ProposedTask = { title: string; detail: string };
+export type ProposedTask = { title: string; detail: string; kind: TaskKind };
 
 function record(value: unknown): Record<string, unknown> | null {
   return value != null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -46,14 +47,17 @@ export function proposedTasksDecision(
     const row = record(item);
     const rawTitle = typeof item === 'string' ? item : row?.title;
     const rawDetail = row?.detail;
+    const rawKind = row?.kind;
     if (typeof rawTitle !== 'string') return { ok: false, reason: PROPOSED_TASKS_SHAPE };
+    const kind = rawKind == null ? 'build' : parseTaskKind(rawKind);
+    if (!kind) return { ok: false, reason: TASK_KIND_INVALID };
     if (rawDetail != null && typeof rawDetail !== 'string') return { ok: false, reason: PROPOSED_TASKS_SHAPE };
     const title = rawTitle.replace(/\s+/g, ' ').trim();
     if (!title || title.length > TITLE_LIMIT) return { ok: false, reason: PROPOSED_TASK_TITLE };
     const key = title.toLowerCase();
     if (seen.has(key)) return { ok: false, reason: PROPOSED_TASKS_DUPLICATE };
     seen.add(key);
-    tasks.push({ title, detail: typeof rawDetail === 'string' ? rawDetail.trim().slice(0, DETAIL_LIMIT) : '' });
+    tasks.push({ title, detail: typeof rawDetail === 'string' ? rawDetail.trim().slice(0, DETAIL_LIMIT) : '', kind });
   }
   return { ok: true, tasks };
 }

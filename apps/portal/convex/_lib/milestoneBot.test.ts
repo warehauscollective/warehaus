@@ -31,9 +31,9 @@ describe('proposed tasks', () => {
     assert.deepEqual(three, {
       ok: true,
       tasks: [
-        { title: 'Design it', detail: '' },
-        { title: 'Build it', detail: 'With care' },
-        { title: 'Check it', detail: '' },
+        { title: 'Design it', detail: '', kind: 'build' },
+        { title: 'Build it', detail: 'With care', kind: 'build' },
+        { title: 'Check it', detail: '', kind: 'build' },
       ],
     });
   });

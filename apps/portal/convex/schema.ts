@@ -173,6 +173,12 @@ export default defineSchema({
     ),
     /** Review iteration that asked for this task. Set with origin review. Staff only. */
     round: v.optional(v.number()),
+    /**
+     * Design or Build (`_lib/designGate.ts`). Missing reads as build. A
+     * milestone with a design task holds its build tasks until Peter
+     * approves the designs. Staff only.
+     */
+    kind: v.optional(v.union(v.literal('design'), v.literal('build'))),
     /** Runner id working this task. Set on claim, cleared when the run ends. Staff only. */
     claimedBy: v.optional(v.string()),
     claimedAt: v.optional(v.number()),
@@ -547,7 +553,7 @@ export default defineSchema({
      */
     waitingOn: v.optional(v.id('contacts')),
     /** Why it is an Ask. Set with `open` and kept after it is answered. */
-    reason: v.optional(v.union(v.literal('approval'), v.literal('blocked'))),
+    reason: v.optional(v.union(v.literal('approval'), v.literal('blocked'), v.literal('design'))),
     /** The blocked task. Absent on an approval request. */
     taskId: v.optional(v.id('tasks')),
     /**

@@ -22,6 +22,7 @@ export const MILESTONE_ACTIVITY = {
   ready: 'milestone.ready',
   approved: 'milestone.approved',
   designApproved: 'milestone.design_approved',
+  designChangesRequested: 'milestone.design_changes_requested',
   changesRequested: 'milestone.changes_requested',
   status: 'milestone.status',
   publish: 'milestone.publish',
@@ -471,7 +472,7 @@ export function milestoneActivityInsert(input: {
     ...(input.summary ? { summary: input.summary } : {}),
     type: input.type,
     tone:
-      input.type === 'milestone.changes_requested'
+      input.type === 'milestone.changes_requested' || input.type === 'milestone.design_changes_requested'
         ? 'warn'
         : input.type === 'milestone.approved' || input.type === 'milestone.design_approved'
           ? 'success'

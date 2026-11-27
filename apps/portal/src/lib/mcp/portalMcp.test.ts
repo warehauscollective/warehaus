@@ -87,6 +87,11 @@ const samples: Record<string, Record<string, unknown>> = {
     newTasks: ['Give the card more space at 390'],
     idempotencyKey: 'changes-1',
   },
+  request_design_changes: {
+    milestoneId: 'milestone-1',
+    notes: 'Give the review card more room at 390.',
+    idempotencyKey: 'design-changes-1',
+  },
 };
 
 const paths: Record<string, { method: 'GET' | 'POST'; path: string }> = {
@@ -118,6 +123,7 @@ const paths: Record<string, { method: 'GET' | 'POST'; path: string }> = {
   add_note: { method: 'POST', path: '/api/v1/milestones/note' },
   approve_milestone: { method: 'POST', path: '/api/v1/milestones/milestone-1/review' },
   request_changes: { method: 'POST', path: '/api/v1/milestones/milestone-1/review' },
+  request_design_changes: { method: 'POST', path: '/api/v1/milestones/design-changes' },
 };
 
 describe('portal MCP tools', () => {

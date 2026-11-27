@@ -22,6 +22,7 @@
  * - Entering Planning: queue planning. Leaving it: drop a queued plan.
  */
 
+import { syncDesignAsk } from './designGateStore';
 import type { Doc } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { queuePlanning } from '../planningQueue';
@@ -163,6 +164,10 @@ export async function changeMilestoneStatus(
 
   const current = (await ctx.db.get(milestone._id)) ?? { ...milestone, status: to };
   if (from === 'Ready to Ship') await closeApprovalNotes(ctx, current);
+  // Approve designs is only asked while Building: open it on the way in, close it on the way out.
+  if (from === 'Building' || to === 'Building') {
+    await syncDesignAsk(ctx, current, { addedBy: input.noteAuthor ?? input.actorName, at: input.at });
+  }
   if (to === 'Ready to Ship' && from !== 'Shipped') await enterReadyToShip(ctx, current, input);
   if (to === 'Planning') await queuePlanning(ctx, current);
   else if (current.planning === 'queued') {

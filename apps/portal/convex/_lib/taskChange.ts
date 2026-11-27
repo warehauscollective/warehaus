@@ -38,6 +38,7 @@ import type { Doc, Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { findOutboxRow, insertOutboxRow } from '../sync/outbox';
 import { writebackAllowed } from '../sync/notion';
+import { syncDesignAsk } from './designGateStore';
 import { isPortalOwnedTask } from './milestoneTasks';
 
 export type TaskChange =
@@ -417,6 +418,12 @@ export async function applyTaskChanges(
       actorId: options.actorId,
     });
     outboxIds.push(row.outboxId);
+  }
+
+  // A design task finished or reopened by hand moves the Approve designs Ask too.
+  if (task.milestoneId && ('status' in patch || 'isDone' in patch || 'stage' in stagePatch)) {
+    const milestone = await ctx.db.get(task.milestoneId);
+    if (milestone) await syncDesignAsk(ctx, milestone, { addedBy: options.actorId ?? options.actor, at });
   }
 
   // A stage that settles back onto Notion's own value queues nothing and needs no note.

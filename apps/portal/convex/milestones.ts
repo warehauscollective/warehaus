@@ -119,7 +119,15 @@ import {
   reviewPreviews,
   reviewRetryLiveOnClient,
 } from './_lib/previewLink';
-import { approveDesignDecision, ONLY_PETER_DESIGNS } from './_lib/designApproval';
+import {
+  approveDesignDecision,
+  ONLY_PETER_DESIGN_CHANGES,
+  ONLY_PETER_DESIGNS,
+  requestDesignChangesDecision,
+} from './_lib/designApproval';
+import { designGate, TASK_KIND_NEEDS_MILESTONE } from './_lib/designGate';
+import { stageForNewMilestoneTask } from './_lib/milestoneTasks';
+import { setTaskKind as writeTaskKind, syncDesignAsk } from './_lib/designGateStore';
 import {
   PREVIEW_DELETED_ACTIVITY,
   PREVIEW_READY_ACTIVITY,
@@ -1434,7 +1442,114 @@ export const approveDesign = adminMutation({
     const at = Date.now();
     await ctx.db.patch(milestone._id, { designApprovedAt: at, designApproverContactId: contactId });
     await logMilestone(ctx, milestone, 'milestone.design_approved', at, 'Designs approved by Peter');
+    // Build tasks unlock; the Approve designs Ask is answered.
+    await syncDesignAsk(ctx, { ...milestone, designApprovedAt: at }, { addedBy: ctx.identity.email, at });
     return { ok: true as const, designApprovedAt: at, already: false };
+  },
+});
+
+/**
+ * Request design changes, beside Approve designs. Peter only. Adds top-level
+ * design tasks that say which design tasks they revise, answers the Approve
+ * designs Ask, and leaves the designs unapproved, so build stays locked.
+ * Status does not change.
+ */
+export async function applyDesignChanges(
+  ctx: MutationCtx,
+  input: {
+    milestoneId: Id<'milestones'>;
+    notes: string;
+    taskIds: readonly Id<'tasks'>[];
+    newTasks?: readonly string[];
+    actor: string;
+  },
+): Promise<{ ok: true; taskIds: Id<'tasks'>[] } | { ok: false; error: string }> {
+  const milestone = await ctx.db.get(input.milestoneId);
+  if (!milestone || milestone.archivedAt != null) return { ok: false, error: 'Milestone not found' };
+  const loaded = await loadMilestoneTaskSet(ctx, milestone);
+  if (!loaded.ok) return { ok: false, error: loaded.reason };
+  const byId = new Map(loaded.set.tasks.map((task) => [task.id as string, task]));
+  const revises = input.taskIds.map((id) => byId.get(id)?.doc.name).filter((name): name is string => Boolean(name));
+  const decision = requestDesignChangesDecision({
+    status: milestone.status,
+    designApprovedAt: milestone.designApprovedAt,
+    visual: designGate(loaded.set.tasks, null).visual,
+    notes: input.notes,
+    revises,
+    newTasks: input.newTasks,
+  });
+  if (!decision.ok) return { ok: false, error: decision.reason };
+  const siblings = await loadLinkedTasks(ctx, milestone);
+  if (!siblings.ok) return { ok: false, error: siblings.reason };
+  let order = nextMilestoneOrder(siblings.rows.map((task) => task.milestoneOrder));
+  const at = Date.now();
+  const round = currentIteration(milestone.iteration);
+  const created: Id<'tasks'>[] = [];
+  for (const [index, draft] of decision.drafts.entries()) {
+    const key = `${PORTAL_MILESTONE_TASK_SOURCE}:${milestone._id}:design:${at}:${index}`;
+    created.push(
+      await ctx.db.insert('tasks', {
+        orgId: milestone.orgId,
+        projectId: milestone.projectId,
+        notionPageId: key,
+        externalId: key,
+        lastSyncedAt: at,
+        name: draft.name,
+        description: draft.description,
+        descriptionSource: 'property' as const,
+        status: 'To Do',
+        isDone: NEW_ITERATION_TASK_DONE,
+        stage: stageForNewMilestoneTask(milestone.status),
+        publishToWarehaus: false,
+        source: PORTAL_MILESTONE_TASK_SOURCE,
+        origin: 'review',
+        round,
+        kind: 'design',
+        milestoneId: milestone._id,
+        milestoneOrder: order,
+        updatedAt: at,
+      }),
+    );
+    order += 1;
+  }
+  await ctx.db.insert('milestoneNotes', {
+    orgId: milestone.orgId,
+    milestoneId: milestone._id,
+    body: `Design changes requested by ${input.actor}: ${input.notes.trim()}`,
+    addedBy: input.actor,
+    createdAt: at,
+  });
+  await logMilestone(
+    ctx,
+    milestone,
+    'milestone.design_changes_requested',
+    at,
+    `Design changes requested · ${created.length === 1 ? '1 design task' : `${created.length} design tasks`} added`,
+  );
+  await syncDesignAsk(ctx, milestone, { addedBy: input.actor, at });
+  return { ok: true, taskIds: created };
+}
+
+export const requestDesignChanges = adminMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    notes: v.string(),
+    /** Design tasks the changes revise. */
+    taskIds: v.optional(v.array(v.id('tasks'))),
+    /** One design task per line. Without them the notes become one task. */
+    newTasks: v.optional(v.array(v.string())),
+  },
+  handler: async (ctx, args) => {
+    if (ctx.identity.role !== 'Warehaus Staff' || !isPeterEmail(ctx.identity.email)) fail(ONLY_PETER_DESIGN_CHANGES);
+    const result = await applyDesignChanges(ctx, {
+      milestoneId: args.milestoneId,
+      notes: args.notes,
+      taskIds: args.taskIds ?? [],
+      newTasks: args.newTasks,
+      actor: 'Peter',
+    });
+    if (!result.ok) fail(result.error);
+    return result;
   },
 });
 
@@ -2527,4 +2642,17 @@ export const migrateNeedsPeterToAsks = internalMutation({
   args: { apply: v.optional(v.boolean()), limit: v.optional(v.number()) },
   handler: async (ctx, args) =>
     migrateNeedsPeterBatch(ctx, { apply: args.apply === true, limit: args.limit ?? ASK_MIGRATION_BATCH }),
+});
+
+/** Staff set a milestone task's kind, Design or Build, from the task modal. */
+export const setTaskKind = adminMutation({
+  args: { taskId: v.id('tasks'), kind: v.union(v.literal('design'), v.literal('build')) },
+  handler: async (ctx, args) => {
+    if (ctx.identity.role !== 'Warehaus Staff') fail('Only staff can change a task kind');
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.archivedAt != null) fail('Task not found');
+    if (!task.milestoneId) fail(TASK_KIND_NEEDS_MILESTONE);
+    const result = await writeTaskKind(ctx, task, args.kind, { addedBy: ctx.identity.email, at: Date.now() });
+    return { ok: true as const, wrote: result.wrote };
+  },
 });
