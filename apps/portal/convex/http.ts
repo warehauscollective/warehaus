@@ -2,6 +2,8 @@ import { httpRouter } from 'convex/server';
 import { authComponent, createAuth } from './auth';
 import { stripeWebhook } from './billing/stripe';
 import { AGENT_PAIR_ROUTES, AGENT_ROUTES, agentHttp, agentPairHttp } from './agentHttp';
+import { runnerAppPublishHttp } from './runnerApp';
+import { RUNNER_APP_PUBLISH_PATHS } from './_lib/runnerApp';
 import { portalApiHttp } from './portalApi';
 import { reviewPreviewHttp } from './milestones';
 import { REVIEW_PREVIEW_PATH } from './_lib/reviewPreview';
@@ -52,6 +54,9 @@ for (const path of AGENT_ROUTES) {
 for (const path of AGENT_PAIR_ROUTES) {
   http.route({ path, method: 'POST', handler: agentPairHttp });
 }
+for (const path of Object.values(RUNNER_APP_PUBLISH_PATHS)) {
+  http.route({ path, method: 'POST', handler: runnerAppPublishHttp });
+}
 
 /** Dynamic staff review. Exact routes above this prefix still win. */
 export const portalApiPrefixRoutes: Array<{ pathPrefix: string; method: 'POST' }> = [
@@ -67,8 +72,10 @@ export const portalApiRoutes: Array<{ path: string; method: 'GET' | 'POST' }> = 
   { path: '/api/v1/milestones', method: 'GET' },
   { path: '/api/v1/milestones', method: 'POST' },
   { path: '/api/v1/milestones/item', method: 'GET' },
+  { path: '/api/v1/milestones/asks', method: 'GET' },
   { path: '/api/v1/milestones/needs-peter', method: 'GET' },
   { path: '/api/v1/milestones/note', method: 'POST' },
+  { path: '/api/v1/milestones/design-changes', method: 'POST' },
   { path: '/api/v1/milestones/update', method: 'POST' },
   { path: '/api/v1/milestones/attach', method: 'POST' },
   { path: '/api/v1/milestones/detach', method: 'POST' },

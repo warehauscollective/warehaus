@@ -60,35 +60,67 @@ A milestone has one field, `status`: `Idea`, `Planning`, `Awaiting Go`, `Buildin
 
 `update_milestone` (`POST /api/v1/milestones/update`) sends only the fields that change, including Shipped when every task that is not Parked is Done. `create_milestone` cannot start a milestone at Shipped.
 
-A task only exists inside a milestone. `create_task` and `POST /api/v1/tasks` need `milestoneId`. A missing milestone, a milestone on another project, and a `Shipped` milestone are each a 400.
+A task only exists inside a milestone. `create_task` and `POST /api/v1/tasks` need `milestoneId`. A missing milestone, a milestone on another project, and a `Shipped` milestone are each a 400. The task is stored in the Portal only (no Notion page, no outbox row), so it is on the milestone at once, and the response carries its `id`.
+
+Every task has a `kind`, `design` or `build` (ADR-0008). `create_task` and `update_task` take it; a task created without one is `build`. On a milestone with a design task, the runner works only design tasks until Peter approves the designs. Changing a kind can open or close the Approve designs Ask.
 
 To start new work, create the milestone and its task list in one call:
 
 - `create_milestone` (`POST /api/v1/milestones`) takes `projectId`, `name`, `objective`, `goals`, and `proposedTasks`.
-- `proposedTasks` is 3 to 10 concrete tasks, in the order they should be done. Each is `{ title, detail? }`. A plain title string works too. Leave it out to create a milestone with no tasks.
+- `proposedTasks` is 3 to 10 concrete tasks, in the order they should be done. Each is `{ title, detail?, kind? }`. A plain title string works too, and is a build task. Leave it out to create a milestone with no tasks.
 - The milestone starts at `Planning`. A `status` in the call is kept, except `Building` and `Shipped`.
 - `createdVia` is taken from the token name, not from the request. A token named `grok-bot` or containing `grok` is grok, a name containing `claude` is claude, and anything else is other. The Portal shows it on the milestone as "via Grok Bot" or "via Claude".
 - These tasks are stored in the Portal only. They are not sent to Notion.
 - The result is `{ id, status, createdVia, taskIds }`.
 
-`get_milestone_status` (`GET /api/v1/milestones/item?id=`) returns one milestone: `status`, `approval`, `iteration`, the ordered `tasks` with `origin` (`brief`, `review`, `manual`) and `round`, `previews.local` and `previews.vercel`, `pullRequest`, and the latest `reviews`, `notes` and `events`.
+`get_milestone_status` (`GET /api/v1/milestones/item?id=`) returns one milestone: `status`, `approval`, `iteration`, the ordered `tasks` with `origin` (`brief`, `review`, `manual`), `round` and `kind`, `design` (`{ visual, approvedAt, buildLocked, phase }`, where `phase` is `designs`, `design-approval` or `build`), `previews.local` and `previews.vercel`, `pullRequest`, and the latest `reviews`, `notes` and `events`.
 
 `add_note` (`POST /api/v1/milestones/note`) adds a staff note. Notes are staff only. A note changes no status, approval or task.
 
-`list_needs_peter` (`GET /api/v1/milestones/needs-peter`) lists what is waiting on Peter, newest first, at most 20. There are two kinds. `approval`: a milestone reached Ready to Ship. The note has the pull request, the local preview command and link, and the approval line. `blocked`: a runner stopped on a task. The note has the task and the reason. An approval note leaves the list when Peter approves or requests changes. A blocked note leaves when that task is done. The Portal does not message Grok Bot. Grok Bot reads this list.
+## Asks
+
+An Ask is a milestone note that waits on one named staff member (see `GLOSSARY.md`). The Portal shows it as Needs you. There are three kinds:
+
+- `approval`: a milestone reached Ready to Ship. The note has the pull request, the local preview command and link, and the approval line. Approval Asks wait on Peter, the only approver.
+- `design`: every design task on a visual milestone is done and the designs are not approved. It waits on Peter, and closes when he approves the designs or requests design changes, or the milestone leaves Building.
+- `blocked`: a runner stopped on a task. The note has the task and the reason. Blocked Asks wait on Peter until milestones or tasks have an owner.
+
+`list_asks` (`GET /api/v1/milestones/asks`) lists the open Asks, newest first, at most 20.
+
+- `person` is optional. Leave it out to list every open Ask. Send it to list only the Asks waiting on one staff member. Over HTTP it is the query parameter `?person=`.
+- `person` is `peter`, a staff email, or a staff contact id. The contact id is the `waitingOn.id` an earlier item returned.
+- A `person` that matches no staff member is a 404, `No staff member matches that person`. It is not an empty list, so a typo does not read as "nothing is waiting".
+- Each item has `id`, `milestoneId`, `milestoneName`, `projectId`, `reason` (`approval`, `design` or `blocked`), `waitingOn` (`{ id, name }`, or `null` when it waits on no one), `body`, `status`, `iteration` and `createdAt`.
+
+An approval Ask leaves the list when Peter approves or requests changes. A blocked Ask leaves when that task is done. The Portal does not message Grok Bot. Grok Bot reads this list and raises each Ask with the person it waits on.
+
+### For Grok Bot owners: `list_needs_peter` is now `list_asks`
+
+`list_needs_peter` (`GET /api/v1/milestones/needs-peter`) is the old name. It still answers for one release, then it is removed.
+
+- Change the bot to call `list_asks` with `person` set to `peter`. That is the same list the old tool gave.
+- To raise Asks with other staff too, call `list_asks` with no `person` and read `waitingOn` on each item.
+- The old tool takes no arguments and returns the Asks waiting on Peter, in the same shape as `list_asks`. `waitingOn` is new on each item; the other fields are unchanged.
+- No new token is needed. Both tools are reads.
 
 ## Review
 
 `approve_milestone` and `request_changes` record Peter's decision on one iteration. Only the `grok-bot` token is accepted. Send the `iteration` from `get_milestone_status`. A stale iteration is rejected.
 
 - `approve_milestone` needs `status` `Ready to Ship` and a preview, local or Vercel. It keeps that status. It records the decision only. It does not merge and does not deploy.
-- `request_changes` needs `notes`. Put each change on its own line in `newTasks`. Every line becomes a review task in the milestone. Without `newTasks` the notes are split into tasks. It starts the next iteration and moves `status` back to `Building`.
+- `request_changes` needs `notes`. Put each change on its own line in `newTasks`. Every line becomes a review task in the milestone. Without `newTasks` the notes are split into tasks. It starts the next iteration and moves `status` to `Awaiting Go` (a request from the Portal UI moves it to `Building`). Decision 0018 will send both to `Building`.
+
+`request_design_changes` (`POST /api/v1/milestones/design-changes`) is Peter's answer to the Approve designs Ask when the designs need work. Only the `grok-bot` token is accepted.
+
+- Send `milestoneId` and `notes`. `taskIds` names the design tasks the changes revise. Put each new design task on its own line in `newTasks` (at most 10); without them the notes become one design task.
+- The new tasks are top-level design tasks in the current round. Their description names what they revise. Build stays locked and the Approve designs Ask closes; it opens again when the new design tasks are done.
+- It is refused once the designs are approved, and on a milestone with no design task.
 
 `record_milestone_review` is the older name for both and still works for one release. All three post to `POST /api/v1/milestones/{id}/review`.
 
 For one release the old names still work, so current bot tokens do not break:
 - `stage` is returned with the same value as `status`, and is accepted in its place.
-- `workStatus` is returned as `draft`, `active`, or `ready`, and is accepted as `Planning`, `Building`, or `Ready to Ship`.
+- `workStatus` is returned as `draft`, `active`, or `ready`, and is accepted as `Planning` or `Ready to Ship`. `active` (Building) is refused, like `status` Building.
 - If more than one of the three is sent, they must agree, or the call is a 400.
 
 Read and send `status`. The two aliases are removed in a later release.

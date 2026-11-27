@@ -256,7 +256,7 @@ describe('memoryCtx call', () => {
     const result = await t.call<{ status: string }>(advance, { milestoneId: ids.milestoneId, expectedStatus: 'Building' }, { as: 'staff' });
     assert.equal(result.status, 'Ready to Ship');
     assert.equal(t.row(ids.milestoneId)?.status, 'Ready to Ship');
-    assert.equal(t.rows('milestoneNotes').filter((note) => note.needsPeter === 'open').length, 1);
+    assert.equal(t.rows('milestoneNotes').filter((note) => note.open === true).length, 1);
   });
 
   it('refuses a staff mutation with no identity, and with a client identity', async () => {

@@ -84,19 +84,17 @@ export type RunnerRegistration = {
 const DUMMY_HASH = '0'.repeat(64);
 
 /**
- * How a runner call is allowed: by its registration, by the `RUNNER_TOKENS`
- * fallback, or not at all. The hash compare is constant time and runs even
- * when the id has no registration, so timing does not name registered ids.
+ * How a runner call is allowed: by its registration, or not at all. The hash
+ * compare is constant time and runs even when the id has no registration, so
+ * timing does not name registered ids.
  */
 export function runnerAccess(input: {
   row: RunnerRegistration;
   tokenHash: string | null | undefined;
-  envAuthorized: boolean;
-}): 'registered' | 'env' | null {
+}): 'registered' | null {
   const stored = input.row?.registeredAt != null && input.row.tokenHash ? input.row.tokenHash : null;
   const same = timingSafeEqualUtf8(input.tokenHash ?? '', stored ?? DUMMY_HASH);
-  if (stored && input.tokenHash && same) return 'registered';
-  return input.envAuthorized ? 'env' : null;
+  return stored && input.tokenHash && same ? 'registered' : null;
 }
 
 /** `X-Runner-Protocol` as a number. A missing or odd header is version 1. */
@@ -134,7 +132,7 @@ export function pairingPoll(
   return { status: 'open', expiresAt: row.expiresAt };
 }
 
-/** A milestone Building this long with no runner online gets a "needs Peter" note (ADR-0005 amendment). */
+/** A milestone Building this long with no runner online gets an Ask waiting on Peter (ADR-0005 amendment). */
 export const NO_RUNNER_AFTER_MS = 30 * 60_000;
 /** Building milestones the sweep checks for a missing runner. */
 export const NO_RUNNER_SCAN = 10;
@@ -170,3 +168,20 @@ export function noRunnerNoteFor(input: {
   if (input.now - input.buildingSince < NO_RUNNER_AFTER_MS) return null;
   return input.registeredCount === 0 ? NO_REGISTERED_RUNNER_NOTE : NO_RUNNER_ONLINE_NOTE;
 }
+
+/**
+ * The `pausedAt` change one heartbeat asks for, or null when nothing changes.
+ * `paused` absent means the runner did not say, so a stored pause stays.
+ */
+export function runnerPausePatch(
+  pausedAt: number | null | undefined,
+  paused: boolean | null | undefined,
+  now: number,
+): { pausedAt: number | undefined } | null {
+  if (paused == null) return null;
+  if (paused && pausedAt == null) return { pausedAt: now };
+  if (!paused && pausedAt != null) return { pausedAt: undefined };
+  return null;
+}
+
+export const RUNNER_PAUSED = 'This runner is paused in the runner app. Resume it there to take work.';

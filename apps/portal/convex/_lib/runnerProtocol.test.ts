@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { describe, it } from 'node:test';
 import { COMPLETE_STATUSES, PLAN_TASKS_MAX, PLAN_TASKS_MIN, isMilestoneBranch, runnerClient } from '@warehaus/runner-protocol';
 import { touchRunner } from '../agent';
 import { agentHttp } from '../agentHttp';
@@ -13,16 +13,6 @@ import { memoryCtx, type RunCall } from './memoryCtx.testkit';
  * arguments the portal expects.
  */
 const TOKEN = 'runner-token-0123456789abcdef';
-let saved: string | undefined;
-
-beforeEach(() => {
-  saved = process.env.RUNNER_TOKENS;
-  process.env.RUNNER_TOKENS = `mac-mini=${TOKEN} warehauscollective/warehaus`;
-});
-afterEach(() => {
-  if (saved === undefined) delete process.env.RUNNER_TOKENS;
-  else process.env.RUNNER_TOKENS = saved;
-});
 
 function wired() {
   const t = memoryCtx();
@@ -51,8 +41,10 @@ describe('runner protocol', () => {
     await client.completeTask({ runId: 'run1', status: 'done', commitSha: 'abc1234' });
     await client.failPlanning({ runId: 'run2', reason: 'No JSON' });
     await client.reportBuild({ runId: 'run3', status: 'failed', reason: 'Broke' });
+    await client.release({ runId: 'run4', reason: 'Claude usage limit', until: 1 });
     const names = landed().map(([name]) => String(name).split(/[:.]/).pop());
-    assert.deepEqual(names, ['claimNext', 'recordEvent', 'writePlannedTasks', 'completeTask', 'failPlanning', 'reportBuild']);
+    assert.deepEqual(names, ['claimNext', 'recordEvent', 'writePlannedTasks', 'completeTask', 'failPlanning', 'reportBuild', 'releaseRun']);
+    assert.deepEqual(landed()[6]![1], { runnerId: 'mac-mini', runId: 'run4', reason: 'Claude usage limit' });
     const complete = landed()[3]![1] as Record<string, unknown>;
     assert.equal(complete.status, 'done');
     assert.equal(complete.commitSha, 'abc1234');
@@ -66,7 +58,7 @@ describe('runner protocol', () => {
       runnerId: 'mac-mini',
       fetch: ((url: string, init: RequestInit) => {
         const t = memoryCtx();
-        // The real touchRunner decides: no registration and no RUNNER_TOKENS match, so it refuses.
+        // The real touchRunner decides: no registration for this runner, so it refuses.
         const respond = (call: RunCall) => (call.name.endsWith('touchRunner') ? t.call(touchRunner, call.args) : { ok: true });
         return t.callHttp(agentHttp, new Request(url, init), { respond });
       }) as typeof fetch,

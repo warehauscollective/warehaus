@@ -1,10 +1,15 @@
 /**
  * Staff-only /api/v1. Tokens are hashed. Writes that mirror a Notion task use
- * the outbox: kind `update` for field and link patches, kind `create` for a
- * new task, and kind `task-stage` for stage moves. Milestones and comments
- * stay in Convex. There is no Notion database or comment write for them.
+ * the outbox: kind `update` for field and link patches and kind `task-stage`
+ * for stage moves. A task created here lives inside a milestone and is stored
+ * in the portal only, like a staff add. Milestones and comments stay in Convex. There is no Notion database or comment write for them.
  */
 
+import { designGate, parseTaskKind, taskKind, TASK_KIND_INVALID, TASK_KIND_NEEDS_MILESTONE } from './_lib/designGate';
+import { setTaskKind } from './_lib/designGateStore';
+import { ONLY_PETER_DESIGN_CHANGES } from './_lib/designApproval';
+import { PETER_CHAT_TOKEN } from './_lib/milestoneReview';
+import { applyDesignChanges } from './milestones';
 import { ConvexError, v } from 'convex/values';
 import {
   authorizeApiCall,
@@ -64,7 +69,8 @@ import {
 import { currentIteration, NEW_ITERATION_TASK_DONE } from './_lib/milestoneReview';
 import { reviewPreviews } from './_lib/previewLink';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
-import { NEEDS_PETER_LIMIT, planningForNewMilestone } from './_lib/agentRun';
+import { planningForNewMilestone } from './_lib/agentRun';
+import { ASK_PERSON_MAX, ASK_PERSON_PETER, openAsks, staffContactForPerson } from './_lib/askStore';
 import { resolveShipLink, verifyPullMerged } from './_lib/githubPull';
 import { changeMilestoneStatus } from './_lib/milestoneLifecycle';
 import { apiStatusFields, apiStatusInput } from './_lib/milestoneStatus';
@@ -72,6 +78,7 @@ import { contextSourceForToken } from './_lib/projectContext';
 import { convexFailureText } from './_lib/userFacingError';
 import { applyTaskChanges, type TaskChange } from './_lib/taskChange';
 import { staffMayReadOrg, staffOrgs, staffTask } from './_lib/staffRead';
+import { insertMilestoneTask } from './_lib/milestoneTaskCreate';
 
 const PAGE_CAP = 50;
 
@@ -341,6 +348,8 @@ export const listTasks = internalQuery({
             updatedAt: task.updatedAt,
             lastEditedTime: task.lastEditedTime,
             notionPageId: task.notionPageId,
+            source: task.source,
+            portalOwned: task.portalOwned,
             publishToWarehaus: task.publishToWarehaus,
             milestoneId: task.milestoneId,
           };
@@ -462,6 +471,26 @@ export const listLinks = internalQuery({
   },
 });
 
+/**
+ * One task inside a milestone. It is stored in the portal only, the way a staff
+ * add or a create_milestone task list is: no Notion page and no outbox row. A
+ * Notion create would land unpublished, the pull gate would skip it, and the
+ * task would never reach the milestone.
+ */
+/** The design gate as get_milestone_status shows it. */
+function designSummary(tasks: readonly Doc<'tasks'>[], designApprovedAt: number | undefined) {
+  const gate = designGate(
+    tasks.map((task) => ({ ...task, archived: task.archivedAt != null, parentTaskId: task.parentTaskId ?? null })),
+    designApprovedAt,
+  );
+  return {
+    visual: gate.visual,
+    approvedAt: designApprovedAt ?? null,
+    buildLocked: gate.buildLocked,
+    phase: gate.phase,
+  };
+}
+
 export const createTask = internalMutation({
   args: {
     ...idemArgs,
@@ -472,6 +501,8 @@ export const createTask = internalMutation({
     date: v.optional(v.string()),
     stage: v.optional(v.string()),
     milestoneId: v.optional(v.id('milestones')),
+    /** Design or Build. Missing is Build. */
+    kind: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<ApiResult> => {
     const opened = await openIdempotency(ctx, args);
@@ -480,12 +511,13 @@ export const createTask = internalMutation({
     if (!project || !(await staffMayReadOrg(ctx, project.orgId))) {
       return finishIdempotency(ctx, opened.id, fail(404, 'Project not found'));
     }
-    const milestoneGate = taskMilestoneGate(
-      args.milestoneId ? await ctx.db.get(args.milestoneId) : null,
-      { orgId: project.orgId, projectId: project._id },
-    );
-    if (!milestoneGate.ok) return finishIdempotency(ctx, opened.id, fail(400, milestoneGate.reason));
+    const milestone = args.milestoneId ? await ctx.db.get(args.milestoneId) : null;
+    const milestoneGate = taskMilestoneGate(milestone, { orgId: project.orgId, projectId: project._id });
+    if (!milestoneGate.ok || !milestone) {
+      return finishIdempotency(ctx, opened.id, fail(400, milestoneGate.ok ? 'Milestone not found' : milestoneGate.reason));
+    }
     const externalId = `wh_tsk_${(await sha256Hex(`${args.tokenId}:${args.key}`)).slice(0, 24)}`;
+    // Same name, status, date and stage rules as before. The Notion properties are not sent.
     const planned = planApiTaskCreate({
       name: args.name,
       status: args.status,
@@ -495,23 +527,23 @@ export const createTask = internalMutation({
       stage: args.stage,
     });
     if (!planned.ok) return finishIdempotency(ctx, opened.id, fail(400, planned.error));
-    const queued = await ctx.runMutation(internal.sync.outbox.enqueue, {
-      idempotencyKey: planned.idempotencyKey,
-      kind: 'create',
-      orgId: project.orgId,
-      database: 'tasks',
-      payload: JSON.stringify({
-        properties: planned.properties,
-        ...(args.milestoneId ? { milestoneId: args.milestoneId } : {}),
-      }),
-      actor: 'staff' as const,
-      actorId: args.tokenName,
-      schedule: true,
+    const kind = args.kind === undefined ? 'build' : parseTaskKind(args.kind);
+    if (!kind) return finishIdempotency(ctx, opened.id, fail(400, TASK_KIND_INVALID));
+    const inserted = await insertMilestoneTask(ctx, {
+      kind,
+      project,
+      milestone,
+      name: String(planned.properties.Name),
+      status: args.status,
+      date: args.date,
+      stage: args.stage,
+      via: 'api',
+      ref: externalId,
     });
-    if (!queued.ok) return finishIdempotency(ctx, opened.id, fail(400, queued.error));
+    if (!inserted.ok) return finishIdempotency(ctx, opened.id, fail(400, inserted.reason));
     return finishIdempotency(ctx, opened.id, {
       status: 200,
-      body: { externalId, outboxId: queued.outboxId, duplicate: queued.duplicate },
+      body: { id: inserted.taskId, externalId: inserted.key, milestoneId: milestone._id, duplicate: inserted.duplicate },
     });
   },
 });
@@ -521,12 +553,15 @@ export const updateTask = internalMutation({
     ...idemArgs,
     tokenName: v.string(),
     taskId: v.id('tasks'),
-    expectedLastEditedTime: v.string(),
+    /** Required for a Notion-backed task. Ignored for a Portal-only task, which has no Notion edit time. */
+    expectedLastEditedTime: v.optional(v.string()),
     status: v.optional(v.string()),
     priority: v.optional(v.union(v.string(), v.null())),
     nextAction: v.optional(v.union(v.string(), v.null())),
     stage: v.optional(v.string()),
     pullRequestLink: v.optional(v.string()),
+    /** Design or Build. Portal only: never written to Notion. */
+    kind: v.optional(v.string()),
     /** Set by the HTTP action after GitHub confirms the merge. Not a request field. */
     verifiedMerge: v.optional(v.boolean()),
   },
@@ -550,10 +585,21 @@ export const updateTask = internalMutation({
       });
     }
     const now = Date.now();
+    const kind = args.kind === undefined ? null : parseTaskKind(args.kind);
+    if (args.kind !== undefined && !kind) return finishIdempotency(ctx, opened.id, fail(400, TASK_KIND_INVALID));
+    if (kind && !task.milestoneId) return finishIdempotency(ctx, opened.id, fail(400, TASK_KIND_NEEDS_MILESTONE));
+    const kindWrite = kind ? await setTaskKind(ctx, task, kind, { addedBy: args.tokenName, at: now }) : { wrote: false };
+    if (changes.length === 0) {
+      return finishIdempotency(ctx, opened.id, {
+        status: 200,
+        body: { id: task._id, updatedAt: kindWrite.wrote ? now : task.updatedAt, notion: 'portal' },
+      });
+    }
     const result = await applyTaskChanges(ctx, task, changes, {
       actor: 'api',
       actorId: args.tokenName,
-      expectedLastEditedTime: args.expectedLastEditedTime,
+      // Missing still means stale for a Notion-backed task. applyTaskChanges skips the check for Portal-only tasks.
+      expectedLastEditedTime: args.expectedLastEditedTime ?? '',
       at: now,
     });
     if (!result.ok) {
@@ -562,7 +608,7 @@ export const updateTask = internalMutation({
     }
     return finishIdempotency(ctx, opened.id, {
       status: 200,
-      body: { id: task._id, updatedAt: result.wrote ? now : task.updatedAt, notion: result.notion },
+      body: { id: task._id, updatedAt: result.wrote || kindWrite.wrote ? now : task.updatedAt, notion: result.notion },
     });
   },
 });
@@ -642,6 +688,7 @@ export const createMilestone = internalMutation({
           publishToWarehaus: false,
           source: PORTAL_MILESTONE_TASK_SOURCE,
           origin: 'brief',
+          ...(task.kind === 'design' ? { kind: 'design' as const } : {}),
           milestoneId,
           milestoneOrder: index,
           updatedAt: at,
@@ -667,7 +714,7 @@ export const createMilestone = internalMutation({
 });
 
 /**
- * One milestone for a bot: status, the ordered checklist, both previews, the
+ * One milestone for a bot: status, the tasks in order, both previews, the
  * pull request, and the latest reviews, notes and events. Every read is
  * indexed and capped.
  */
@@ -714,7 +761,9 @@ export const getMilestoneStatus = internalQuery({
           isDone: task.isDone,
           origin: taskOrigin({ origin: task.origin, source: task.source }),
           round: task.round ?? null,
+          kind: taskKind(task),
         })),
+        design: designSummary(ordered, milestone.designApprovedAt),
         taskCounts: {
           total: ordered.length,
           done: ordered.filter((task) => task.isDone).length,
@@ -742,7 +791,8 @@ export const getMilestoneStatus = internalQuery({
           addedBy: note.addedBy,
           createdAt: note.createdAt,
           reason: note.reason ?? null,
-          needsPeter: note.needsPeter === 'open',
+          open: note.open === true,
+          waitingOn: note.waitingOn ?? null,
         })),
         events: recent.map((row) => ({ type: row.type, summary: row.summary ?? null, at: row.timestamp })),
       },
@@ -751,29 +801,53 @@ export const getMilestoneStatus = internalQuery({
 });
 
 /**
- * Open notes that wait on Peter: approval requests and blocked tasks, newest
- * first. One indexed read, at most 20. Grok Bot reads this to know what to
- * raise with him.
+ * Open Asks: approval requests and blocked tasks, newest first. With
+ * `waitingOn` or `person`, only the Asks waiting on that staff member. One
+ * indexed read, at most 20. Grok Bot reads this to know what to raise, and
+ * with whom.
+ *
+ * `person` is `peter`, a staff email or a staff contact id. A person who is
+ * not staff is a 404, so a typo is not read as "nothing is waiting".
+ * `personOptional` is for the old needs-peter route only: where Peter has no
+ * contact, Asks wait on no one, and that route still lists them.
  */
-export const listNeedsPeter = internalQuery({
-  args: {},
-  handler: async (ctx): Promise<ApiResult> => {
-    const open = await ctx.db
-      .query('milestoneNotes')
-      .withIndex('by_needsPeter', (q) => q.eq('needsPeter', 'open'))
-      .order('desc')
-      .take(NEEDS_PETER_LIMIT);
+export const listOpenAsks = internalQuery({
+  args: {
+    waitingOn: v.optional(v.id('contacts')),
+    person: v.optional(v.string()),
+    personOptional: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args): Promise<ApiResult> => {
+    let waitingOn = args.waitingOn;
+    if (!waitingOn && args.person != null) {
+      const contactId = await staffContactForPerson(ctx, args.person);
+      if (!contactId && args.personOptional !== true) {
+        return { status: 404, body: { error: 'No staff member matches that person' } };
+      }
+      waitingOn = contactId ?? undefined;
+    }
+    const open = await openAsks(ctx, { waitingOn });
+    const people = new Map<string, { id: Id<'contacts'>; name: string } | null>();
     const items = [];
     for (const note of open) {
       if (!(await staffMayReadOrg(ctx, note.orgId))) continue;
       const milestone = await ctx.db.get(note.milestoneId);
       if (!milestone) continue;
+      let waitingOn: { id: Id<'contacts'>; name: string } | null = null;
+      if (note.waitingOn) {
+        if (!people.has(note.waitingOn)) {
+          const contact = await ctx.db.get(note.waitingOn);
+          people.set(note.waitingOn, contact ? { id: contact._id, name: contact.name } : null);
+        }
+        waitingOn = people.get(note.waitingOn) ?? null;
+      }
       items.push({
         id: note._id,
         milestoneId: milestone._id,
         milestoneName: milestone.name,
         projectId: milestone.projectId,
         reason: note.reason ?? null,
+        waitingOn,
         body: note.body,
         status: milestone.status,
         iteration: currentIteration(milestone.iteration),
@@ -804,6 +878,41 @@ export const addMilestoneNote = internalMutation({
       createdAt: Date.now(),
     });
     return finishIdempotency(ctx, opened.id, { status: 200, body: { id } });
+  },
+});
+
+/**
+ * Request design changes from chat. Only Peter's grok-bot token, like a chat
+ * approval. Adds design tasks and keeps build locked (`applyDesignChanges`).
+ */
+export const requestDesignChanges = internalMutation({
+  args: {
+    ...idemArgs,
+    tokenName: v.string(),
+    milestoneId: v.id('milestones'),
+    notes: v.string(),
+    taskIds: v.array(v.id('tasks')),
+    newTasks: v.array(v.string()),
+  },
+  handler: async (ctx, args): Promise<ApiResult> => {
+    const opened = await openIdempotency(ctx, args);
+    if (!('action' in opened)) return opened;
+    if (args.tokenName !== PETER_CHAT_TOKEN) {
+      return finishIdempotency(ctx, opened.id, fail(403, ONLY_PETER_DESIGN_CHANGES));
+    }
+    const milestone = await ctx.db.get(args.milestoneId);
+    if (!milestone || !(await staffMayReadOrg(ctx, milestone.orgId))) {
+      return finishIdempotency(ctx, opened.id, fail(404, 'Milestone not found'));
+    }
+    const result = await applyDesignChanges(ctx, {
+      milestoneId: milestone._id,
+      notes: args.notes,
+      taskIds: args.taskIds,
+      newTasks: args.newTasks,
+      actor: 'Peter (chat)',
+    });
+    if (!result.ok) return finishIdempotency(ctx, opened.id, fail(400, result.error));
+    return finishIdempotency(ctx, opened.id, { status: 200, body: { createdTaskIds: result.taskIds } });
   },
 });
 
@@ -1034,8 +1143,9 @@ function json(body: unknown, status: number): Response {
   });
 }
 
-const TASK_UPDATE_FIELDS = ['taskId', 'expectedLastEditedTime', 'status', 'priority', 'nextAction', 'stage', 'pullRequestLink'];
-const TASK_CREATE_FIELDS = ['projectId', 'name', 'status', 'date', 'stage', 'milestoneId'];
+const TASK_UPDATE_FIELDS = ['taskId', 'expectedLastEditedTime', 'status', 'priority', 'nextAction', 'stage', 'pullRequestLink', 'kind'];
+const TASK_CREATE_FIELDS = ['projectId', 'name', 'status', 'date', 'stage', 'milestoneId', 'kind'];
+const DESIGN_CHANGES_FIELDS = ['milestoneId', 'notes', 'taskIds', 'newTasks'];
 // `stage` and `workStatus` are aliases of `status` for one release.
 const MILESTONE_CREATE_FIELDS = [
   'projectId',
@@ -1171,8 +1281,18 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
         });
         return json(result.body, result.status);
       }
+      if (url.pathname === '/api/v1/milestones/asks') {
+        const person = url.searchParams.get('person')?.trim();
+        if (person && person.length > ASK_PERSON_MAX) return json({ error: 'Person is too long' }, 400);
+        const result = await ctx.runQuery(internal.portalApi.listOpenAsks, person ? { person } : {});
+        return json(result.body, result.status);
+      }
+      // Old name for /api/v1/milestones/asks?person=peter. Kept for one release.
       if (url.pathname === '/api/v1/milestones/needs-peter') {
-        const result = await ctx.runQuery(internal.portalApi.listNeedsPeter, {});
+        const result = await ctx.runQuery(internal.portalApi.listOpenAsks, {
+          person: ASK_PERSON_PETER,
+          personOptional: true,
+        });
         return json(result.body, result.status);
       }
       if (url.pathname === '/api/v1/milestones/item') {
@@ -1329,6 +1449,8 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
             ? MILESTONE_UPDATE_FIELDS
             : url.pathname === '/api/v1/milestones/note'
               ? NOTE_FIELDS
+            : url.pathname === '/api/v1/milestones/design-changes'
+              ? DESIGN_CHANGES_FIELDS
             : url.pathname === '/api/v1/comments'
               ? COMMENT_FIELDS
               : url.pathname === '/api/v1/links'
@@ -1407,6 +1529,7 @@ async function dispatchWrite(
       date: typeof body.date === 'string' ? body.date : undefined,
       stage: typeof body.stage === 'string' ? body.stage : undefined,
       milestoneId: typeof body.milestoneId === 'string' ? (body.milestoneId as Id<'milestones'>) : undefined,
+      kind: typeof body.kind === 'string' ? body.kind : undefined,
     });
   }
   if (path === '/api/v1/tasks/update') {
@@ -1439,6 +1562,7 @@ async function dispatchWrite(
       nextAction: body.nextAction === null || typeof body.nextAction === 'string' ? body.nextAction : undefined,
       stage,
       pullRequestLink: verifiedLink,
+      kind: typeof body.kind === 'string' ? body.kind : undefined,
       verifiedMerge,
     });
   }
@@ -1466,6 +1590,17 @@ async function dispatchWrite(
       stage: typeof body.stage === 'string' ? body.stage : undefined,
       workStatus: typeof body.workStatus === 'string' ? body.workStatus : undefined,
       tokenName: actor.tokenName,
+    });
+  }
+  if (path === '/api/v1/milestones/design-changes') {
+    const strings = (value: unknown) =>
+      Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+    return ctx.runMutation(internal.portalApi.requestDesignChanges, {
+      ...actor,
+      milestoneId: body.milestoneId as Id<'milestones'>,
+      notes: typeof body.notes === 'string' ? body.notes : '',
+      taskIds: strings(body.taskIds) as Id<'tasks'>[],
+      newTasks: strings(body.newTasks),
     });
   }
   if (path === '/api/v1/milestones/note') {

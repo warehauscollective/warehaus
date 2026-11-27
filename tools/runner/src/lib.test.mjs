@@ -4,13 +4,19 @@ import { describe, it } from 'node:test';
 import { cursorCreateBody } from './drivers/cursor.mjs';
 import {
   childEnv,
+  taskKindRules,
   defaultBranchName,
   hookEvent,
   HEARTBEAT_MS,
   heartbeatSlices,
   idleDelayMs,
+  idleWait,
   isMilestoneBranch,
   parseArgs,
+  attentionForStatus,
+  SUPERVISOR_PREFIX,
+  supervisorCommand,
+  supervisorLine,
   mapCursorCommits,
   parseGitLog,
   parsePlan,
@@ -22,6 +28,7 @@ import {
   selectDriver,
   taskOutcome,
   taskPrompt,
+  designApprovalLine,
   worktreeName,
   proposedRunnerId,
   parseConfigFile,
@@ -29,6 +36,16 @@ import {
   keychainAccount,
   launchAgentLabel,
   launchAgentPlist,
+  MAX_PARALLEL,
+  runSlots,
+  nextResetAt,
+  RELEASED,
+  USAGE_LIMIT_BACKOFF_MS,
+  USAGE_LIMIT_MARGIN_MS,
+  USAGE_LIMIT_MAX_WAIT_MS,
+  usageHold,
+  usageLimitFrom,
+  usageLimitReason,
 } from './lib.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -37,13 +54,16 @@ describe('arguments', () => {
   it('reads start with an id and defaults to interactive', () => {
     assert.deepEqual(parseArgs(['start', '--id', 'peter-mbp', '--repo', 'WarehausCollective/warehaus']), {
       ok: true,
-      options: { command: 'start', production: false, id: 'peter-mbp', mode: 'interactive', once: false, repos: ['warehauscollective/warehaus'] },
+      options: {
+        command: 'start', production: false, id: 'peter-mbp', mode: 'interactive', once: false, repos: ['warehauscollective/warehaus'],
+        supervised: false, paused: false, parallel: 1,
+      },
     });
     const full = parseArgs([
       'start', '--id', 'peter-mbp', '--mode', 'headless', '--once',
       '--repo', 'a/b,c/d', '--repo', 'a/b',
     ]);
-    assert.deepEqual(full.options, { command: 'start', production: false, id: 'peter-mbp', mode: 'headless', once: true, repos: ['a/b', 'c/d'] });
+    assert.deepEqual(full.options, { command: 'start', production: false, id: 'peter-mbp', mode: 'headless', once: true, repos: ['a/b', 'c/d'], supervised: false, paused: false, parallel: 1 });
     // A registered runner names no repository: it serves every project that has one.
     assert.deepEqual(parseArgs(['start', '--id', 'peter-mbp']).options.repos, []);
     // The runner works only in its own clones, so there is no --dir.
@@ -56,7 +76,7 @@ describe('arguments', () => {
   it('reads setup, with --production only when asked', () => {
     assert.deepEqual(parseArgs(['setup']).options.production, false);
     assert.deepEqual(parseArgs(['setup', '--production', '--id', 'studio-mini-prod']).options, {
-      command: 'setup', production: true, id: 'studio-mini-prod', mode: 'interactive', once: false, repos: [],
+      command: 'setup', production: true, id: 'studio-mini-prod', mode: 'interactive', once: false, repos: [], supervised: false,
     });
     assert.equal(parseArgs(['setup', '--repo', 'a/b']).ok, false);
     assert.equal(parseArgs(['setup', '--once']).ok, false);
@@ -166,6 +186,32 @@ describe('prompts', () => {
     assert.match(prompt, /branch `milestone\/launch`/);
     assert.match(prompt, /- Hero matches/);
     assert.equal(prompt.includes('{{'), false);
+    // No design approval yet: the prompt says nothing about design.
+    assert.equal(prompt.includes('Design: approved'), false);
+  });
+
+  it('says the design is approved once Peter pressed Approve designs', () => {
+    const approved = { ...work, milestone: { ...work.milestone, designApprovedAt: Date.UTC(2026, 10, 25, 18) } };
+    const prompt = taskPrompt(read('../prompts/task.md'), approved);
+    assert.match(prompt, /Design: approved by Peter in the Portal on 2026-11-25\. Build tasks can go ahead\./);
+    assert.equal(designApprovalLine(null), '');
+    assert.equal(designApprovalLine('2026-11-25'), '');
+  });
+
+  it('tells a design task to work in Figma and commit nothing, and leaves a build task as before', () => {
+    const designPrompt = taskPrompt(read('../prompts/task.md'), { ...work, task: { ...work.task, kind: 'design' } });
+    assert.match(designPrompt, /## This is a design task/);
+    assert.match(designPrompt, /docs\/design\/figma-protocol\.md/);
+    assert.match(designPrompt, /\.runner\/design-done\.txt/);
+    const buildPrompt = taskPrompt(read('../prompts/task.md'), { ...work, task: { ...work.task, kind: 'build' } });
+    assert.equal(buildPrompt.includes('design task'), false);
+    assert.equal(taskKindRules(undefined), '');
+  });
+
+  it('asks the planner for a kind on every task', () => {
+    const prompt = planPrompt(read('../prompts/plan-milestone.md'), work);
+    assert.match(prompt, /"kind": "build"/);
+    assert.match(prompt, /first task is a design task/);
   });
 
   it('fills the planning prompt and keeps it read only', () => {
@@ -232,6 +278,13 @@ describe('plan file', () => {
     assert.equal(parsePlan(JSON.stringify({ tasks: ['a', 'b'] })).ok, false);
     assert.equal(parsePlan(JSON.stringify({ tasks: ['a', 'b', ''] })).ok, false);
   });
+
+  it('keeps a design kind and drops anything else', () => {
+    const plan = parsePlan(
+      JSON.stringify({ tasks: [{ title: 'Design', kind: 'Design' }, { title: 'Build', kind: 'build' }, { title: 'Odd', kind: 'x' }] }),
+    );
+    assert.deepEqual(plan, { ok: true, tasks: [{ title: 'Design', kind: 'design' }, { title: 'Build' }, { title: 'Odd' }] });
+  });
 });
 
 describe('task outcome', () => {
@@ -242,6 +295,13 @@ describe('task outcome', () => {
       status: 'blocked',
       reason: 'needs a Figma frame',
     });
+  });
+
+  it('counts a design task done with its done note and no commit', () => {
+    assert.deepEqual(taskOutcome({ before: 'aaa', after: 'aaa', blockedReason: '', designDone: 'Task card 1106:8680\n' }), {
+      status: 'done',
+    });
+    assert.equal(taskOutcome({ before: 'aaa', after: 'aaa', blockedReason: '', designDone: '  ' }).status, 'failed');
   });
 
   it('waits one minute, then longer, up to five', () => {
@@ -262,8 +322,42 @@ describe('task outcome', () => {
       assert.equal(Math.max(...slices) <= HEARTBEAT_MS, true);
     }
     const cli = read('./cli.mjs');
-    assert.match(cli, /await idleWait\(config, idleDelayMs\(empty\)\)/);
-    assert.match(cli, /call\(config, '\/agent\/ping', \{\}\)\.catch\(\(\) => \{\}\)/);
+    assert.match(cli, /await waitIdle\(config, coolDown == null \? idleDelayMs\(empty\)/);
+    // The ping goes through the protocol client and carries Paused, and the runs held (protocol 4 signs of life).
+    assert.match(cli, /client\(config\)\.ping\(\{ paused: control\.paused, held: heldRuns\(\) \}\)/);
+    assert.match(cli, /client\(config\)\.ping\(\{ held: heldRuns\(\) \}\)/);
+  });
+
+  it('idleWait runs its pings: one between slices, none after the last, failures skipped', async () => {
+    const slept = [];
+    let pings = 0;
+    await idleWait({ ms: 300_000, sleep: async (ms) => void slept.push(ms), ping: async () => void (pings += 1) });
+    assert.deepEqual(slept, [75_000, 75_000, 75_000, 75_000]);
+    assert.equal(pings, 3);
+    pings = 0;
+    await idleWait({ ms: 60_000, sleep: async () => {}, ping: async () => void (pings += 1) });
+    assert.equal(pings, 0);
+    await idleWait({ ms: 120_000, sleep: async () => {}, ping: () => { throw new Error('sync boom'); } });
+    await idleWait({ ms: 120_000, sleep: async () => {}, ping: async () => { throw new Error('offline'); } });
+  });
+
+  it('idleWait stops early when Pause or Resume changes, without another ping', async () => {
+    const slept = [];
+    let pings = 0;
+    let stop = false;
+    await idleWait({
+      ms: 300_000,
+      sleep: async (ms) => { slept.push(ms); if (slept.length === 2) stop = true; },
+      ping: async () => void (pings += 1),
+      stopped: () => stop,
+    });
+    assert.deepEqual(slept, [75_000, 75_000]);
+    assert.equal(pings, 1);
+  });
+
+  it('cli.mjs pings through the protocol client, and every call-style identifier it uses is defined', () => {
+    const cli = read('./cli.mjs');
+    assert.doesNotMatch(cli, /(?<![.\w])call\(config/);
   });
 });
 
@@ -320,7 +414,8 @@ describe('drivers', () => {
     assert.equal(selectDriver({ kind: 'task', driver: 'claude_code' }), 'claude_code');
     assert.equal(selectDriver({ kind: 'task' }), 'claude_code');
     const cli = read('./cli.mjs');
-    assert.match(cli, /if \(buildStillRunning\) await sleep\(idleDelayMs\(1\)\)/);
+    // A Cursor agent still going gives its slot back and is followed again after a minute.
+    assert.match(cli, /if \(buildStillRunning\) slots\.coolDown\(work\.runId, idleDelayMs\(1\)\)/);
     // The branch steps live in repo.mjs and the build step in drivers/cursorBuild.mjs.
     // cursorFlow.test.mjs runs both against a real repository with the Cursor API mocked.
     const repo = read('./repo.mjs');
@@ -406,3 +501,207 @@ describe('kept running', () => {
   });
 });
 
+describe('runner Mac app supervision', () => {
+  it('reads --supervised, --paused and remove', () => {
+    const started = parseArgs(['start', '--production', '--supervised', '--paused', '--mode', 'headless']);
+    assert.equal(started.ok, true);
+    assert.equal(started.options.supervised, true);
+    assert.equal(started.options.paused, true);
+    assert.equal(parseArgs(['setup', '--supervised']).options.supervised, true);
+    assert.equal(parseArgs(['setup', '--paused']).ok, false);
+    assert.equal(parseArgs(['install', '--supervised']).ok, false);
+    assert.deepEqual(parseArgs(['remove', '--production']).options, {
+      command: 'remove', production: true, id: '', mode: 'interactive', once: false, repos: [],
+    });
+  });
+
+  it('writes one prefixed JSON line per state', () => {
+    const line = supervisorLine('working', { kind: 'task', milestone: 'Launch', taskOrder: 3, at: 1 });
+    assert.ok(line.startsWith(SUPERVISOR_PREFIX));
+    assert.ok(line.endsWith('\n'));
+    assert.deepEqual(JSON.parse(line.slice(SUPERVISOR_PREFIX.length)), { type: 'working', kind: 'task', milestone: 'Launch', taskOrder: 3, at: 1 });
+    assert.throws(() => supervisorLine('dancing'));
+    assert.throws(() => supervisorLine('attention', { reason: 'bored' }));
+    assert.doesNotThrow(() => supervisorLine('attention', { reason: 'github' }));
+  });
+
+  it('writes the pairing lines setup --supervised gives the app', () => {
+    const line = supervisorLine('pairing', { code: 'K7QM-4XPA', runnerId: 'peter-mbp-prod', expiresAt: 600, production: true, at: 1 });
+    assert.deepEqual(JSON.parse(line.slice(SUPERVISOR_PREFIX.length)), {
+      type: 'pairing', code: 'K7QM-4XPA', runnerId: 'peter-mbp-prod', expiresAt: 600, production: true, at: 1,
+    });
+    assert.doesNotThrow(() => supervisorLine('paired', { runnerId: 'peter-mbp-prod' }));
+    assert.doesNotThrow(() => supervisorLine('pair_expired'));
+  });
+
+  it('reads app-release and writes its line', () => {
+    assert.deepEqual(parseArgs(['app-release', '--production']).options, {
+      command: 'app-release', production: true, id: '', mode: 'interactive', once: false, repos: [],
+    });
+    assert.equal(parseArgs(['app-release', '--once']).ok, false);
+    const release = { version: '0.1.1', build: 312, sha256: 'a'.repeat(64), size: 10, minMacOS: '14.0', publishedAt: 1, url: 'https://x.convex.cloud/api/storage/1' };
+    const line = supervisorLine('app_release', { release, at: 1 });
+    assert.deepEqual(JSON.parse(line.slice(SUPERVISOR_PREFIX.length)), { type: 'app_release', release, at: 1 });
+  });
+
+  it('takes pause and resume on stdin, nothing else', () => {
+    assert.equal(supervisorCommand('pause\n'), 'pause');
+    assert.equal(supervisorCommand(' Resume '), 'resume');
+    assert.equal(supervisorCommand('rm -rf /'), null);
+    assert.equal(supervisorCommand(''), null);
+  });
+
+  it('needs a person only for a revoked or out-of-date runner', () => {
+    assert.equal(attentionForStatus(401), 'unauthorized');
+    assert.equal(attentionForStatus(426), 'out_of_date');
+    assert.equal(attentionForStatus(500), null);
+    assert.equal(attentionForStatus(undefined), null);
+  });
+});
+
+describe('parallel runs', () => {
+  it('reads --parallel for headless runs only, from 1 to 4', () => {
+    assert.equal(parseArgs(['start', '--mode', 'headless', '--parallel', '3']).options.parallel, 3);
+    assert.equal(parseArgs(['start']).options.parallel, 1);
+    assert.equal(parseArgs(['start', '--parallel', '1']).ok, true);
+    assert.match(parseArgs(['start', '--parallel', '2']).error, /needs --mode headless/);
+    assert.match(parseArgs(['start', '--mode', 'headless', '--parallel', '2', '--once']).error, /do not go together/);
+    for (const bad of ['0', '5', '2.5', 'many']) {
+      assert.match(parseArgs(['start', '--mode', 'headless', '--parallel', bad]).error, /--parallel must be/);
+    }
+    assert.equal(MAX_PARALLEL, 4);
+    // The Portal caps slots at the same number.
+    assert.match(read('../../../apps/portal/convex/_lib/agentRun.ts'), /RUNNER_MAX_SLOTS = 4;/);
+  });
+
+  it('holds a slot per run, and a Cursor build cools down before the Portal hands it back', () => {
+    let now = 1_000;
+    const slots = runSlots(2, () => now);
+    assert.equal(slots.free(), true);
+    slots.start('a');
+    slots.start('b');
+    assert.equal(slots.free(), false);
+    assert.deepEqual(slots.held(), ['a', 'b']);
+    slots.finish('a');
+    assert.equal(slots.free(), true);
+    assert.equal(slots.running, 1);
+    slots.coolDown('b', 60_000);
+    assert.equal(slots.running, 0);
+    assert.deepEqual(slots.held(), ['b']);
+    assert.equal(slots.nextCoolDownMs(), 60_000);
+    now += 60_000;
+    assert.deepEqual(slots.held(), []);
+    assert.equal(slots.nextCoolDownMs(), null);
+    // Followed again: it holds a slot as before.
+    slots.start('b');
+    assert.deepEqual(slots.held(), ['b']);
+  });
+
+  it('sends its slots and held runs with each claim, and finishes and reports each run on its own', () => {
+    const cli = read('./cli.mjs');
+    assert.match(cli, /slots: slots\.size,\s*held: slots\.held\(\)/);
+    assert.match(cli, /report\('working', \{ \.\.\.about, running: slots\.running \}\)/);
+    assert.match(cli, /runId: work\.runId,/);
+  });
+});
+
+describe('usage limit', () => {
+  // 03:10 in New York on the morning tasks 04 to 07 were blocked.
+  const NOW = Date.parse('2026-11-26T08:10:00Z');
+  const NY = { now: NOW, localZone: 'America/New_York' };
+  const HIT = "You've hit your 5-hour limit · resets 8:30am (America/New_York)";
+
+  it('spots the limit Claude ended the run on, and reads its reset time in the named zone', () => {
+    const limit = usageLimitFrom(`Reading the board files.\n\n${HIT}\n`, NY);
+    assert.equal(limit.resetsAt, Date.parse('2026-11-26T13:30:00Z'));
+    assert.equal(limit.until, limit.resetsAt + USAGE_LIMIT_MARGIN_MS);
+    assert.equal(limit.message, HIT);
+    assert.equal(usageLimitReason(limit), 'Claude usage limit · resets 8:30am (America/New_York)');
+  });
+
+  it('reads the other ways Claude Code words it', () => {
+    const at = (text, zone = 'America/New_York') => usageLimitFrom(text, { now: NOW, localZone: zone })?.resetsAt;
+    // No zone in brackets: the Mac's own zone.
+    assert.equal(at('5-hour limit reached ∙ resets 3pm'), Date.parse('2026-11-26T20:00:00Z'));
+    assert.equal(at('5-hour limit reached ∙ resets 3pm', 'Europe/London'), Date.parse('2026-11-26T15:00:00Z'));
+    // A weekly limit names a day. 26 November 2026 is a Thursday.
+    assert.equal(at("You've reached your weekly limit · resets Mon 9am (Europe/London)"), Date.parse('2026-11-30T09:00:00Z'));
+    assert.equal(at('Opus weekly limit reached · resets Nov 28, 5pm'), Date.parse('2026-11-28T22:00:00Z'));
+    // The older form carries the reset as epoch seconds.
+    assert.equal(at('Claude AI usage limit reached|1795700000'), 1_795_700_000_000);
+    // A reset earlier today is tomorrow's.
+    assert.equal(at("You've hit your 5-hour limit · resets 2am (America/New_York)"), Date.parse('2026-11-27T07:00:00Z'));
+  });
+
+  it('backs off for half an hour when no reset time can be read, and never waits past a week and a day', () => {
+    for (const text of ["You've hit your limit", 'Claude AI usage limit reached|1700000000', 'Claude usage limit reached · resets soon']) {
+      const limit = usageLimitFrom(text, NY);
+      assert.ok(limit, text);
+      assert.equal(limit.resetsAt, null, text);
+      assert.equal(limit.until, NOW + USAGE_LIMIT_BACKOFF_MS, text);
+    }
+    assert.equal(usageLimitReason(usageLimitFrom('Claude AI usage limit reached|1700000000', NY)), 'Claude usage limit');
+    const far = usageLimitFrom('Claude AI usage limit reached|1900000000', NY);
+    assert.equal(far.until, NOW + USAGE_LIMIT_MAX_WAIT_MS);
+  });
+
+  it('is not fooled by a run that only talks about limits', () => {
+    for (const text of [
+      '',
+      'The run ended with no new commit',
+      'I added a check for the usage limit reached message.',
+      'We hit the rate limit in tests, so I added a retry.',
+      `${HIT}\nThen I fixed the parser.\nCommitted the board columns.\nAll tests pass.`,
+      `Summary: the runner now waits when it sees "${HIT}" and releases the task.`,
+    ]) {
+      assert.equal(usageLimitFrom(text, NY), null, text);
+    }
+  });
+
+  it('reads reset times on their own', () => {
+    assert.equal(nextResetAt('8:30am', 'America/New_York', NOW), Date.parse('2026-11-26T13:30:00Z'));
+    assert.equal(nextResetAt('at 17:45', 'UTC', NOW), Date.parse('2026-11-26T17:45:00Z'));
+    assert.equal(nextResetAt('Thu 1am', 'UTC', NOW), Date.parse('2026-12-03T01:00:00Z'));
+    for (const bad of ['soon', '13pm', '9', 'Someday 9am', '']) assert.equal(nextResetAt(bad, 'UTC', NOW), null, bad);
+  });
+
+  it('releases the task instead of blocking it, unless Claude wrote a blocked note', () => {
+    const limit = usageLimitFrom(HIT, NY);
+    assert.deepEqual(taskOutcome({ before: 'aaa', after: 'aaa', blockedReason: '', usageLimit: limit }), {
+      status: RELEASED,
+      reason: 'Claude usage limit · resets 8:30am (America/New_York)',
+    });
+    // A commit made before the limit stays in the worktree for the next run; the task is not done.
+    assert.equal(taskOutcome({ before: 'aaa', after: 'bbb', blockedReason: '', usageLimit: limit }).status, RELEASED);
+    assert.equal(taskOutcome({ before: 'aaa', after: 'aaa', blockedReason: 'needs a frame', usageLimit: limit }).status, 'blocked');
+    assert.equal(taskOutcome({ before: 'aaa', after: 'aaa', blockedReason: '', usageLimit: null }).status, 'failed');
+  });
+
+  it('holds every slot until the latest reset any run saw', () => {
+    let now = NOW;
+    const hold = usageHold(() => now);
+    assert.equal(hold.remainingMs(), 0);
+    assert.equal(hold.hit({ until: NOW + 60_000 }), true);
+    // A second slot hitting the same limit with an earlier reset does not shorten the hold.
+    assert.equal(hold.hit({ until: NOW + 30_000 }), false);
+    assert.equal(hold.hit({ until: NOW + 90_000 }), true);
+    assert.equal(hold.remainingMs(), 90_000);
+    now += 90_000;
+    assert.equal(hold.remainingMs(), 0);
+    assert.equal(hold.hit(null), false);
+  });
+
+  it('tells the app why the runner waits, and the loop checks the hold before it claims', () => {
+    const line = supervisorLine('waiting', { reason: 'usage_limit', until: 2, resetsAt: 1, at: 1 });
+    assert.deepEqual(JSON.parse(line.slice(SUPERVISOR_PREFIX.length)), { type: 'waiting', reason: 'usage_limit', until: 2, resetsAt: 1, at: 1 });
+    assert.throws(() => supervisorLine('waiting', { reason: 'bored' }));
+    // Not an attention reason: nobody has to act, and the Mac app checks every attention reason is one it knows.
+    assert.throws(() => supervisorLine('attention', { reason: 'usage_limit' }));
+    const cli = read('./cli.mjs');
+    // One runner-wide hold, checked before the slot check and the claim, and released runs never complete as failed.
+    assert.equal(cli.match(/usageHold\(\)/g)?.length, 1);
+    assert.ok(cli.indexOf('usage.remainingMs()') < cli.indexOf('client(config).claim('));
+    assert.match(cli, /client\(config\)\.release\(/);
+    assert.match(cli, /if \(outcome\.status === RELEASED\)/);
+  });
+});

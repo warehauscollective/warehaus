@@ -240,13 +240,23 @@ export const moveStatus = adminMutation({
     taskId: v.id('tasks'),
     status: v.string(),
     expectedLastEditedTime: v.string(),
+    /** What the task is waiting on. A move to Blocked saves it with the status, as one task change. */
+    nextAction: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<TaskChangeResult> =>
-    changeTask(ctx, args.taskId, [{ field: 'status', status: args.status }], {
-      actor: 'staff',
-      actorId: ctx.identity.contactId,
-      expectedLastEditedTime: args.expectedLastEditedTime,
-    }),
+    changeTask(
+      ctx,
+      args.taskId,
+      [
+        { field: 'status', status: args.status },
+        ...(args.nextAction !== undefined ? [{ field: 'nextAction' as const, nextAction: args.nextAction }] : []),
+      ],
+      {
+        actor: 'staff',
+        actorId: ctx.identity.contactId,
+        expectedLastEditedTime: args.expectedLastEditedTime,
+      },
+    ),
 });
 
 export const moveStage = adminMutation({
@@ -383,8 +393,8 @@ export const createTask = adminMutation({
     /** Required. A task only exists inside a milestone. */
     milestoneId: v.id('milestones'),
   },
-  handler: async (ctx, args): Promise<{ ok: false; error: string } | { ok: true; outboxId: Id<'notionOutbox'>; duplicate: boolean }> => {
-    return ctx.runMutation(internal.sync.taskWrite.enqueueCreate, {
+  handler: async (ctx, args): Promise<{ ok: false; error: string } | { ok: true; taskId: Id<'tasks'>; duplicate: boolean }> => {
+    return ctx.runMutation(internal.sync.taskWrite.createInMilestone, {
       ...args,
       actorId: ctx.identity.contactId,
     });

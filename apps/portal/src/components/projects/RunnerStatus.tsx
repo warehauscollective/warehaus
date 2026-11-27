@@ -1,25 +1,30 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useMutation } from 'convex/react';
 import { useSearchParams } from 'next/navigation';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import {
   RUNNER_ADD_REPO,
+  RUNNER_APP_FIELD,
+  RUNNER_APP_REQUIREMENTS,
   RUNNER_CONFIRM_HELPER,
+  RUNNER_DOWNLOAD,
   RUNNER_HEALTH_STATES,
+  RUNNER_KEEP_RUNNING,
   RUNNER_LIST_HELPER,
   RUNNER_MODAL_TITLE,
   RUNNER_PAIRED_HELPER,
+  RUNNER_NO_RELEASE,
   RUNNER_SERVES,
+  RUNNER_SETUP_HELPER,
   RUNNER_SETUP_TITLE,
   agoLabel,
+  agoLabelLong,
   runnerHealthCopy,
-  runnerInstallCommand,
   runnerOutOfDateCopy,
   runnerRevokeHelper,
-  runnerSetupCommand,
   type RunnerHealthRunner,
   type RunnerDot,
   type RunnerHealthCopy,
@@ -47,7 +52,7 @@ export function runnerHealthFixture(state: RunnerHealthState, now: number): Runn
   const base = { production: true, protocolMin: 2 };
   if (state === 'no-repo') return { ...base, registeredCount: 0, repoSet: false, repo: null, runnerAllowed: false, runners: [], working: null, building: null };
   if (state === 'no-runner') return { ...base, registeredCount: 0, repoSet: true, repo: FIXTURE_REPO, runnerAllowed: false, runners: [], working: null, building: null };
-  const fresh = state === 'ready' || state === 'working';
+  const fresh = state === 'ready' || state === 'working' || state === 'paused';
   return {
     ...base,
     registeredCount: 2,
@@ -55,7 +60,7 @@ export function runnerHealthFixture(state: RunnerHealthState, now: number): Runn
     repo: FIXTURE_REPO,
     runnerAllowed: true,
     runners: [
-      { id: 'peter-mbp-prod', lastSeenAt: now - (fresh ? 4 * 60_000 : 2 * 60 * 60_000), registered: true, protocolVersion: 2 },
+      { id: 'peter-mbp-prod', lastSeenAt: now - (fresh ? 4 * 60_000 : 2 * 60 * 60_000), registered: true, protocolVersion: 2, ...(state === 'paused' ? { paused: true } : {}) },
       { id: 'studio-mini-prod', lastSeenAt: now - 3 * 24 * 60 * 60_000, registered: true, protocolVersion: 2 },
     ],
     working: state === 'working' ? FIXTURE_MILESTONE : null,
@@ -70,8 +75,10 @@ const DOT_COLOR: Record<RunnerDot, string> = {
   unset: 'var(--muted)',
 };
 
-/** 12px ring with an 8px core. Not set up is the ring alone. */
-function RunnerDotGlyph({ dot }: { dot: RunnerDot }) {
+const DANGER = 'var(--danger, #e5484d)';
+
+/** 12px ring with an 8px core. Not set up is the ring alone. `core` recolors the core only. */
+function RunnerDotGlyph({ dot, core }: { dot: RunnerDot; core?: string }) {
   return (
     <svg
       width="12"
@@ -83,7 +90,7 @@ function RunnerDotGlyph({ dot }: { dot: RunnerDot }) {
       style={{ display: 'block', flex: '0 0 auto', color: DOT_COLOR[dot] }}
     >
       <circle cx="6" cy="6" r="5.25" strokeWidth="1.5" stroke="currentColor" />
-      {dot === 'unset' ? null : <circle cx="6" cy="6" r="4" fill="currentColor" />}
+      {dot === 'unset' ? null : <circle cx="6" cy="6" r="4" fill={core ?? 'currentColor'} />}
     </svg>
   );
 }
@@ -211,10 +218,10 @@ function Field({ label, value, mono }: { label: string; value: ReactNode; mono?:
   );
 }
 
-function Heading({ dot, label, tone }: { dot: RunnerDot; label: string; tone?: string }) {
+function Heading({ dot, label, tone, core }: { dot: RunnerDot; label: string; tone?: string; core?: string }) {
   return (
     <div className="flex items-center" style={{ gap: 8 }}>
-      <RunnerDotGlyph dot={dot} />
+      <RunnerDotGlyph dot={dot} core={core} />
       <span style={{ fontSize: 16, fontWeight: 600, lineHeight: 'normal', color: tone ?? 'var(--fg)' }}>{label}</span>
     </div>
   );
@@ -236,16 +243,17 @@ function Stack({ step, children }: { step: RunnerModalStep; children: ReactNode 
   );
 }
 
+/** The Input in RunnerStatus / Body: surface-2 fill, a 2px ring border, 16 radius, 14/21 mono. */
 const inputStyle: CSSProperties = {
   boxSizing: 'border-box',
   width: '100%',
-  height: 36,
-  padding: '0 12px',
-  borderRadius: 8,
-  border: '1px solid var(--border)',
-  background: 'var(--surface-elevated)',
+  padding: '10px 12px',
+  borderRadius: 16,
+  border: '2px solid var(--ring)',
+  background: 'var(--surface-2)',
   color: 'var(--fg)',
-  fontSize: 12,
+  fontSize: 14,
+  lineHeight: '21px',
 };
 
 function TextField({
@@ -264,8 +272,8 @@ function TextField({
   autoFocus?: boolean;
 }) {
   return (
-    <label className="flex flex-col" style={{ gap: 6 }}>
-      <span style={{ fontSize: 12, lineHeight: 'normal', color: 'var(--fg)' }}>{label}</span>
+    <label className="flex flex-col" style={{ gap: 8 }}>
+      <span style={{ fontSize: 14, lineHeight: '21px', color: 'var(--fg)' }}>{label}</span>
       <input
         className="ds-mono"
         data-testid={testId}
@@ -289,6 +297,17 @@ function Actions({ children }: { children: ReactNode }) {
   );
 }
 
+/** Why the button beside it is disabled. Read out with the button, and gone once it is enabled. */
+function DisabledHint({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <span id={id} data-testid="runner-disabled-hint" style={{ fontSize: 12, lineHeight: 'normal', color: 'var(--muted)' }}>
+      {children}
+    </span>
+  );
+}
+
+export const RUNNER_CONFIRM_HINT = 'Enter a runner id to pair.';
+
 function DangerButton({ children, onClick, disabled, testId }: { children: ReactNode; onClick: () => void; disabled?: boolean; testId: string }) {
   return (
     <button
@@ -301,9 +320,9 @@ function DangerButton({ children, onClick, disabled, testId }: { children: React
         height: 32,
         padding: '0 12px',
         borderRadius: 8,
-        border: '1px solid var(--danger, #e5484d)',
+        border: `1px solid ${DANGER}`,
         background: 'none',
-        color: 'var(--danger, #e5484d)',
+        color: DANGER,
         fontSize: 12,
         fontWeight: 500,
         cursor: disabled ? 'default' : 'pointer',
@@ -323,32 +342,52 @@ export function runnerModalStep(value: string | null | undefined): RunnerModalSt
   return RUNNER_MODAL_STEPS.find((step) => step === value) ?? null;
 }
 
-/** Not set up with a repository: the command, and a field for the code it prints. */
+/** The latest runner app build staff can download. Undefined while loading, null when none is published. */
+export type RunnerDownload = { url: string; version: string } | null | undefined;
+
+/**
+ * Not set up with a repository: download the runner app, then the code it
+ * shows. No terminal. The primary button is Download until a full code is
+ * typed, then Pair runner. The app normally opens Confirm itself with the
+ * code filled in, so typing is the fallback.
+ */
 export function RunnerSetupBody({
-  production,
+  download,
   code,
   onCode,
   onPair,
   error,
 }: {
-  production: boolean;
+  download: RunnerDownload;
   code: string;
   onCode: (value: string) => void;
   onPair: () => void;
   error?: string | null;
 }) {
+  const complete = code.replace(/[\s-]/g, '').length === 8;
+  const noRelease = download === null;
   return (
     <Stack step="setup">
       <Heading dot="unset" label={RUNNER_SETUP_TITLE} />
-      <Field label="ON THE MAC THAT WILL RUN WORK" value={runnerSetupCommand(production)} mono />
-      <TextField label="Pairing code" value={code} onChange={onCode} placeholder="K7QM-4XPA" testId="runner-pairing-code" autoFocus />
-      <Helper tone={error ? 'var(--warning)' : undefined}>
-        {error ?? "The command prints an 8-character code. Enter it here to pair that Mac. Its secret goes straight to the Mac's Keychain and is never shown."}
-      </Helper>
+      <Field label={RUNNER_APP_FIELD} value={download ? `${RUNNER_APP_REQUIREMENTS} · ${download.version}` : RUNNER_APP_REQUIREMENTS} />
+      <TextField label="Pairing code" value={code} onChange={onCode} placeholder="K7QM-4XPA" testId="runner-pairing-code" />
+      <Helper tone={error ? 'var(--warning)' : undefined}>{error ?? (noRelease && !complete ? RUNNER_NO_RELEASE : RUNNER_SETUP_HELPER)}</Helper>
       <Actions>
-        <PrimaryButton testId="runner-pair" onClick={onPair} disabled={code.replace(/[\s-]/g, '').length !== 8}>
-          Pair runner
-        </PrimaryButton>
+        {complete ? (
+          <PrimaryButton testId="runner-pair" onClick={onPair}>
+            Pair runner
+          </PrimaryButton>
+        ) : (
+          <PrimaryButton
+            testId="runner-download"
+            disabled={!download}
+            onClick={() => {
+              if (download) window.location.assign(download.url);
+            }}
+          >
+            {RUNNER_DOWNLOAD}
+          </PrimaryButton>
+        )}
       </Actions>
     </Stack>
   );
@@ -373,9 +412,11 @@ export function RunnerConfirmBody({
   busy?: boolean;
   error?: string | null;
 }) {
+  const empty = !runnerId.trim();
   return (
     <Stack step="confirm">
-      <Heading dot="ready" label="Confirm this runner" />
+      {/* Not paired yet: the muted dot, as in Figma. Green waits for Runner paired. */}
+      <Heading dot="offline" label="Confirm this runner" />
       <div className="flex flex-col" style={{ gap: 12 }}>
         <Field label="CODE" value={code} mono />
         <Field label="DEPLOYMENT" value={production ? 'Production' : 'Shared dev'} />
@@ -386,25 +427,18 @@ export function RunnerConfirmBody({
         <OutlineButton testId="runner-confirm-cancel" onClick={onCancel}>
           Cancel
         </OutlineButton>
-        <PrimaryButton testId="runner-confirm" onClick={onConfirm} disabled={busy || !runnerId.trim()}>
-          Confirm and pair
-        </PrimaryButton>
+        <span className="inline-flex" aria-describedby={empty ? 'runner-confirm-hint' : undefined}>
+          <PrimaryButton testId="runner-confirm" onClick={onConfirm} disabled={busy || empty}>
+            Confirm and pair
+          </PrimaryButton>
+        </span>
+        {empty ? <DisabledHint id="runner-confirm-hint">{RUNNER_CONFIRM_HINT}</DisabledHint> : null}
       </Actions>
     </Stack>
   );
 }
 
-export function RunnerPairedBody({
-  runnerId,
-  lastSeen,
-  production,
-  onDone,
-}: {
-  runnerId: string;
-  lastSeen: string;
-  production: boolean;
-  onDone: () => void;
-}) {
+export function RunnerPairedBody({ runnerId, lastSeen, onDone }: { runnerId: string; lastSeen: string; onDone: () => void }) {
   return (
     <Stack step="paired">
       <Heading dot="ready" label="Runner paired" />
@@ -412,7 +446,7 @@ export function RunnerPairedBody({
         <Field label="RUNNER" value={runnerId} />
         <Field label="LAST SEEN" value={lastSeen} />
         <Field label="SERVES" value={RUNNER_SERVES} />
-        <Field label="KEEP IT RUNNING" value={runnerInstallCommand(production)} mono />
+        <Field label="KEEP IT RUNNING" value={RUNNER_KEEP_RUNNING} />
       </div>
       <Helper>{RUNNER_PAIRED_HELPER}</Helper>
       <Actions>
@@ -450,7 +484,7 @@ export function RunnerListBody({
             <span className="flex flex-col" style={{ gap: 2, minWidth: 0 }}>
               <span style={{ fontSize: 14, color: 'var(--fg)', overflowWrap: 'anywhere' }}>{runner.id}</span>
               <span className="ds-mono" style={{ fontSize: 10, color: 'var(--muted)' }}>
-                SEEN {runner.lastSeenAt != null ? agoLabel(runner.lastSeenAt, now).toUpperCase() : 'NEVER'}
+                SEEN {runner.lastSeenAt != null ? agoLabelLong(runner.lastSeenAt, now).toUpperCase() : 'NEVER'}
               </span>
             </span>
             <button type="button" data-testid="runner-list-revoke" onClick={() => onRevoke(runner.id)} className={FOCUS} style={{ ...plainButton, fontSize: 12, color: 'var(--muted)' }}>
@@ -488,10 +522,11 @@ export function RunnerRevokeBody({
 }) {
   return (
     <Stack step="revoke">
-      <Heading dot="warning" label={`Revoke ${runner.id}?`} />
+      {/* Figma: amber ring, danger core. */}
+      <Heading dot="warning" core={DANGER} label={`Revoke ${runner.id}?`} />
       <div className="flex flex-col" style={{ gap: 12 }}>
         <Field label="RUNNER" value={runner.id} />
-        <Field label="LAST SEEN" value={runner.lastSeenAt != null ? agoLabel(runner.lastSeenAt, now) : '—'} />
+        <Field label="LAST SEEN" value={runner.lastSeenAt != null ? agoLabelLong(runner.lastSeenAt, now) : '—'} />
       </div>
       <Helper>{runnerRevokeHelper(lastRunner, production)}</Helper>
       <Actions>
@@ -516,14 +551,14 @@ export function RunnerOutOfDateBody({ view, now }: { view: RunnerHealthView; now
         <Field label="RUNNER" value={copy.runner} />
         <Field label="LAST SEEN" value={copy.lastSeen} />
         <Field label="VERSION" value={copy.version} />
-        <Field label="UPDATE" value={copy.update} mono />
+        <Field label="UPDATE" value={copy.update} />
       </div>
       <Helper tone="var(--warning)">{copy.helper}</Helper>
     </Stack>
   );
 }
 
-/** Modal content: status, the fields, the start command while offline, and the helper line. */
+/** Modal content: status, the fields, what to do on the Mac while offline, and the helper line. */
 export function RunnerStatusBody({ copy, onManage }: { copy: RunnerHealthCopy; onManage?: () => void }) {
   const tone = copy.warning ? 'var(--warning)' : undefined;
   return (
@@ -536,7 +571,7 @@ export function RunnerStatusBody({ copy, onManage }: { copy: RunnerHealthCopy; o
         <Field label="RUNNER" value={copy.runner} />
         <Field label="LAST SEEN" value={copy.lastSeen} />
         <Field label="MILESTONE" value={copy.milestone} />
-        {copy.startCommand ? <Field label="START COMMAND" value={copy.startCommand} mono /> : null}
+        {copy.onTheMac ? <Field label="ON THE MAC" value={copy.onTheMac} /> : null}
       </div>
       <p data-testid="runner-status-helper" style={{ margin: 0, fontSize: 14, lineHeight: 'normal', color: tone ?? 'var(--muted)' }}>
         {copy.helper}
@@ -578,6 +613,7 @@ export function RunnerStatusModal({
       narrow={narrow}
       sheet={narrow ? 'bottom' : 'center'}
       onClose={onClose}
+      focusPanel
       panelStyle={{ padding: addRepo ? '8px 24px' : '8px 24px 24px' }}
       footer={
         addRepo ? (
@@ -608,29 +644,99 @@ function useClock(intervalMs: number): number | null {
 type PairingFound = { code: string; proposedRunnerId: string; expiresAt: number; production: boolean };
 type Outcome = { ok: true; runnerId?: string } | { ok: false; error: string };
 
+const FIXTURE_DOWNLOAD: RunnerDownload = { url: '#runner-app', version: '1.0.0' };
 const FIXTURE_PAIRING: PairingFound = { code: 'K7QM-4XPA', proposedRunnerId: 'peter-mbp-prod', expiresAt: 0, production: true };
+
+/**
+ * The runner id to put in the confirm field, or null to leave it alone. The
+ * proposed id fills the field once for each pairing code, so an id the staff
+ * member clears or retypes stays as they left it.
+ */
+export function runnerIdPrefill({
+  step,
+  found,
+  filledFor,
+}: {
+  step: RunnerModalStep;
+  found: { code: string; proposedRunnerId: string } | null | undefined;
+  /** The code the field was last filled for. */
+  filledFor: string | null;
+}): string | null {
+  if (step !== 'confirm' || !found || filledFor === found.code) return null;
+  return found.proposedRunnerId;
+}
+
+/** Whether the expanded line shows. Only at 1440, on hover or while focus is inside the chip. */
+export function runnerChipExpanded({ hover, hovered, focused }: { hover: boolean; hovered: boolean; focused: boolean }): boolean {
+  return hover && (hovered || focused);
+}
 
 /**
  * The compact chip, and at 1440 the expanded line floating over it on hover
  * or keyboard focus. The wrapper keeps the compact chip's size, so the
  * heading never reflows.
+ *
+ * The compact chip hides while the line is expanded, and a hidden button
+ * cannot hold focus. So when Tab lands on the compact chip, focus moves to
+ * the expanded line's button, where Enter opens the modal. When a modal
+ * opened by keyboard closes, focus comes back to the chip.
  */
-function HoverChip({ copy, hover, onOpen, onAddRepo }: { copy: RunnerHealthCopy; hover: boolean; onOpen: () => void; onAddRepo?: () => void }) {
-  const [shown, setShown] = useState(false);
+function HoverChip({
+  copy,
+  hover,
+  modalOpen = false,
+  onOpen,
+  onAddRepo,
+}: {
+  copy: RunnerHealthCopy;
+  hover: boolean;
+  modalOpen?: boolean;
+  onOpen: () => void;
+  onAddRepo?: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const compactRef = useRef<HTMLSpanElement>(null);
+  const expandedRef = useRef<HTMLSpanElement>(null);
+  const openedByKeyboard = useRef(false);
+  const wasModalOpen = useRef(modalOpen);
+  const shown = runnerChipExpanded({ hover, hovered, focused });
+
+  // Before paint, so the browser never drops focus from the hidden compact chip.
+  useLayoutEffect(() => {
+    if (shown && compactRef.current?.contains(document.activeElement)) {
+      expandedRef.current?.querySelector<HTMLElement>('button')?.focus();
+    }
+  }, [shown]);
+
+  // The expanded line unmounts as focus enters the modal, so the modal has
+  // nothing to hand focus back to. Focus the compact chip; it expands again.
+  useEffect(() => {
+    if (wasModalOpen.current && !modalOpen && openedByKeyboard.current) {
+      openedByKeyboard.current = false;
+      compactRef.current?.querySelector<HTMLElement>('button')?.focus();
+    }
+    wasModalOpen.current = modalOpen;
+  }, [modalOpen]);
+
   return (
     <span
       data-testid="runner-status-hover"
       style={{ position: 'relative', display: 'inline-flex', minWidth: 0 }}
-      onMouseEnter={hover ? () => setShown(true) : undefined}
-      onMouseLeave={hover ? () => setShown(false) : undefined}
-      onFocus={hover ? () => setShown(true) : undefined}
-      onBlur={hover ? (event) => (event.currentTarget.contains(event.relatedTarget as Node | null) ? undefined : setShown(false)) : undefined}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => (event.currentTarget.contains(event.relatedTarget as Node | null) ? undefined : setFocused(false))}
+      // A click with no pointer behind it (detail 0) is Enter or Space.
+      onClickCapture={(event) => {
+        openedByKeyboard.current = event.detail === 0;
+      }}
     >
-      <span style={{ visibility: shown ? 'hidden' : 'visible', display: 'inline-flex', minWidth: 0 }}>
+      <span ref={compactRef} style={{ visibility: shown ? 'hidden' : 'visible', display: 'inline-flex', minWidth: 0 }}>
         <RunnerStatusChip copy={copy} compact onOpen={onOpen} />
       </span>
       {shown ? (
-        <span style={{ position: 'absolute', top: 0, right: 0, zIndex: 20, display: 'inline-flex' }}>
+        <span ref={expandedRef} style={{ position: 'absolute', top: 0, right: 0, zIndex: 20, display: 'inline-flex' }}>
           <RunnerStatusChip copy={copy} floating onOpen={onOpen} onAddRepo={onAddRepo} />
         </span>
       ) : null}
@@ -678,6 +784,8 @@ export function RunnerHealth({
   const pairing = useSafeQuery<PairingFound | null>(api.runners.findPairing, querying && open && step === 'confirm' ? { code, hostSlug } : 'skip');
   const confirm = useMutation(api.runners.confirmPairing);
   const revoke = useMutation(api.runners.revokeRunner);
+  const settingUp = open && (step === 'setup' || step === 'confirm');
+  const release = useSafeQuery<RunnerDownload>(api.runnerApp.latestDownload, querying && settingUp ? { hostSlug } : 'skip');
   const fixtureStep = fixtures ? params.get('runnerModal') : null;
   useEffect(() => {
     if (!fixtureStep || fixtureOpened) return;
@@ -692,14 +800,24 @@ export function RunnerHealth({
     setFixtureOpened(true);
   }, [fixtureStep, fixtureOpened]);
   const found = fixtures ? FIXTURE_PAIRING : pairing.data;
+  const filledFor = useRef<string | null>(null);
   useEffect(() => {
-    if (step === 'confirm' && found && !runnerId) setRunnerId(found.proposedRunnerId);
-  }, [step, found, runnerId]);
+    // Leaving the confirm step forgets the fill, so the next pairing starts from its own proposed id.
+    if (step !== 'confirm') {
+      filledFor.current = null;
+      return;
+    }
+    const proposed = runnerIdPrefill({ step, found, filledFor: filledFor.current });
+    if (proposed == null || !found) return;
+    filledFor.current = found.code;
+    setRunnerId(proposed);
+  }, [step, found]);
 
   if (!staff || now == null) return null;
   const view = fixtures ? runnerHealthFixture(runnerFixtureState(params.get('runner')), now) : query.data;
   if (!view) return null;
   const copy = runnerHealthCopy(view, now);
+  const download: RunnerDownload = fixtures ? FIXTURE_DOWNLOAD : release.data;
   const close = () => {
     setOpen(false);
     setStep('status');
@@ -736,11 +854,11 @@ export function RunnerHealth({
   const revokeTarget = view.runners.find((runner) => runner.id === revoking);
   let body: ReactNode = null;
   if (step === 'setup' || (step === 'status' && copy.state === 'no-runner')) {
-    body = <RunnerSetupBody production={view.production} code={code} onCode={setCode} onPair={() => go('confirm')} error={error} />;
+    body = <RunnerSetupBody download={download} code={code} onCode={setCode} onPair={() => go('confirm')} error={error} />;
   } else if (step === 'confirm') {
     body =
       found === null && !fixtures ? (
-        <RunnerSetupBody production={view.production} code={code} onCode={setCode} onPair={() => go('confirm')} error="No open pairing has that code. Codes expire after 10 minutes." />
+        <RunnerSetupBody download={download} code={code} onCode={setCode} onPair={() => go('confirm')} error="No open pairing has that code. Codes expire after 10 minutes." />
       ) : (
         <RunnerConfirmBody
           code={found?.code ?? code}
@@ -763,7 +881,7 @@ export function RunnerHealth({
       );
   } else if (step === 'paired') {
     const seen = pairedRunner?.lastSeenAt != null ? agoLabel(pairedRunner.lastSeenAt, now) : 'Not seen yet';
-    body = <RunnerPairedBody runnerId={pairedId} lastSeen={seen} production={view.production} onDone={close} />;
+    body = <RunnerPairedBody runnerId={pairedId} lastSeen={seen} onDone={close} />;
   } else if (step === 'runners') {
     body = (
       <RunnerListBody
@@ -797,7 +915,7 @@ export function RunnerHealth({
   }
   return (
     <>
-      <HoverChip copy={copy} hover={!phone} onOpen={() => setOpen(true)} onAddRepo={addRepo} />
+      <HoverChip copy={copy} hover={!phone} modalOpen={open} onOpen={() => setOpen(true)} onAddRepo={addRepo} />
       {open ? (
         <RunnerStatusModal copy={copy} narrow={narrow} onClose={close} onAddRepo={addRepo}>
           {body}

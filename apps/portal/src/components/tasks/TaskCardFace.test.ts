@@ -250,3 +250,51 @@ describe('TaskCardFace client stage card', () => {
     assert.equal(client.includes('stagePending'), false);
   });
 });
+
+describe('milestone card face: leading mark', () => {
+  const face = { run: null, origin: null, pullRequest: null };
+
+  it('shows the leading mark before the name, such as the Building indicator on the task being built', () => {
+    const html = renderToStaticMarkup(
+      createElement(TaskCardFace, { task, face: { ...face, leading: createElement('span', { 'data-testid': 'building-now' }) } }),
+    );
+    assert.match(html, /data-testid="card-leading"/);
+    assert.ok(html.indexOf('building-now') < html.indexOf(task.name));
+  });
+
+  it('shows no leading slot on other cards', () => {
+    const html = renderToStaticMarkup(createElement(TaskCardFace, { task, face }));
+    assert.equal(html.includes('card-leading'), false);
+  });
+
+  it('wires the Building indicator into the milestone board for the task the runner is building', () => {
+    const board = readFileSync(new URL('../projects/MilestoneTaskBoard.tsx', import.meta.url), 'utf8');
+    assert.match(board, /useBuildRunState\(milestone\.status, milestone\.buildRun, staff\)/);
+    assert.match(board, /task\.id === buildingTaskId \? <BuildingIndicator/);
+  });
+});
+
+describe('TaskCardFace design gate', () => {
+  const card: PortalTask = { ...task, id: 't-gate', status: 'To Do', stage: null, syncNotice: undefined };
+  it('shows the Design chip and the locked line, and hides the line on a blocked card', () => {
+    const face = { run: '01', origin: 'Brief', pullRequest: null, kind: 'Design', note: 'Waits for design approval' };
+    const html = renderToStaticMarkup(createElement(TaskCardFace, { task: card, mode: 'status', staff: true, face }));
+    assert.match(html, /data-testid="card-kind"[^>]*>Design</);
+    assert.match(html, /data-testid="card-note"[^>]*>Waits for design approval</);
+    const blocked = renderToStaticMarkup(
+      createElement(TaskCardFace, { task: { ...card, status: 'Blocked', nextAction: 'Waiting on copy' }, mode: 'status', staff: true, face }),
+    );
+    assert.equal(blocked.includes('card-note'), false);
+    assert.match(blocked, /Waiting on copy/);
+  });
+});
+
+describe('Tasks page heading (Figma P04)', () => {
+  it('counts tasks at 1440 and drops the count on a phone', async () => {
+    const { tasksSubtitle, TASKS_TITLE } = await import('../projects/MilestoneDetailView');
+    assert.equal(TASKS_TITLE, 'Tasks');
+    assert.equal(tasksSubtitle({ count: 8, phone: false }), 'Work needed to complete this milestone · 8 tasks');
+    assert.equal(tasksSubtitle({ count: 1, phone: false }), 'Work needed to complete this milestone · 1 task');
+    assert.equal(tasksSubtitle({ count: 8, phone: true }), 'Work needed to complete this milestone');
+  });
+});

@@ -48,6 +48,7 @@ export type FixturePatch = Partial<
     | 'note'
     | 'approverName'
     | 'decidedAt'
+    | 'designApprovedAt'
     | 'publishToWarehaus'
     | 'resources'
     | 'ownerContactId'

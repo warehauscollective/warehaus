@@ -38,11 +38,51 @@ _Avoid_: milestone tasks, linked tasks, close set
 A milestone moving from one Status to another. Every status change passes the same gate, writes one activity row, and runs what that status asks for on the way in and out, such as Peter's approval note on entering Ready to Ship. The cause says why it moved: set by a person or the staff API, play, Mark complete, a merge, or a review asking for changes.
 _Avoid_: status write, transition, status update
 
+**Task board**:
+The tasks of one milestone or one project as cards in columns. A milestone's task board is its Tasks tab and has four status columns: To Do, In Progress, Blocked and Done. Staff open a task from its card and move a card to another column to change its status. Clients see the board read-only, and a Shipped milestone's board is read-only for everyone.
+_Avoid_: checklist, task list, kanban
+
+**Run order**:
+The order a milestone's tasks are worked in: the To Do column of its task board, top first. Staff change it by reordering To Do, except while the milestone is Building.
+_Avoid_: task order, queue, priority
+
+**Milestone branch**:
+The one branch a milestone's code lives on, `milestone/<slug>`. Every task commits straight to it, and it has one pull request into `main`. At Ready to Ship every task is on it, and the local preview runs from it.
+_Avoid_: feature branch, task branch, sub-branch
+
+**Ship and deploy**:
+The button at Ready to Ship that only Peter can press, in the Portal, after a confirm step. It counts as his approval, the merge and "deploy main" for that milestone. It shows only when the milestone has an open pull request into `main` and its project has a deploy setting (Warehaus Portal for now). ADR-0007.
+_Avoid_: release button, deploy button, ship it
+
+**Ship run**:
+One run of the GitHub `ship` workflow that Ship and deploy starts: check the merged code, squash-merge, then deploy Convex and Vercel from one commit. A project has at most one at a time. A failed ship run shows its step, opens an Ask on Peter, and Retry resumes from the step that failed.
+_Avoid_: deploy job, release pipeline
+
+**Deployed commit**:
+The `main` commit a project's production is running, saved by each successful ship run. Every milestone merged at or before it counts as deployed; a milestone merged later shows Not deployed.
+_Avoid_: release, live version
+
 ## Tasks
 
 **Task change**:
 An edit to one or more fields of one task by staff, the staff API, a merged pull request, or closeout. A task change is saved in the portal at once and holds against any older Notion edit. When the task has a Notion page and write-back is allowed, it is also written back; otherwise it stays in the portal and says so. A task change is checked whole: every field is saved, or none.
 _Avoid_: task update, field save, task write, move
+
+**Task kind**:
+Design or Build. A design task works in Figma and never changes code; a build task changes code. A task with no kind reads as Build. ADR-0008.
+_Avoid_: task type, design flag
+
+**Visual milestone**:
+A milestone with at least one design task that is top level, not archived and not Parked. Its build tasks wait for design approval.
+_Avoid_: design milestone, UI milestone
+
+**Design approval**:
+Peter's Approve designs on a visual milestone. It records who and when, unlocks build and closes the Approve designs Ask. It never moves Status, merges or deploys. Request design changes is the other answer: it adds design tasks and keeps build locked.
+_Avoid_: design sign-off, design review
+
+**Building phase**:
+What Building shows after it on a visual milestone: Designs while a design task is open, Waiting on design approval once they are all done, then plain Build. Derived from the tasks and the approval, never stored.
+_Avoid_: build stage, design status
 
 **Pending stage**:
 A task's stage that a task change moved and Notion has not confirmed yet. It stays pending until Notion confirms it, a newer Notion edit replaces it, or a move back onto the stage Notion has settles it. Only a stage can be pending; other fields are protected by their stamp.
@@ -72,6 +112,54 @@ _Avoid_: runner token, runner allowlist
 A read-only run that reads a milestone and its repository and drafts 3 to 10 tasks for staff to review. It never changes code and always uses Claude Code.
 _Avoid_: planner job, auto-plan
 
+**Building indicator**:
+The mark beside a Building milestone's status. It pulses while a run is going; otherwise the status reads Building · Queued, Building · Blocked or, for staff, Building · Stalled. Clients see only the pulse.
+_Avoid_: spinner, progress light
+
+**Sign of life**:
+The runner telling the Portal a run it holds is still going, sent with its claims and pings (protocol 4). The Portal keeps the time of the last one on the run, written at most once a minute.
+_Avoid_: heartbeat (that is the runner itself being online), keepalive
+
+**Stalled**:
+A run with no sign of life for 5 minutes. The milestone shows Building · Stalled to staff; after 15 minutes the stuck sweep blocks the run.
+_Avoid_: hung, frozen, stuck (stuck is the older 30-minute quiet-runner rule)
+
 **Build agent**:
 The tool a project builds its milestones with: Claude Code or a Cursor cloud agent. Staff choose it per project; planning does not use it.
 _Avoid_: driver, agent choice, tool
+
+## Platforms
+
+**Mac app**:
+The Warehaus app on a staff Mac, named **Warehaus Portal** (Warehaus Runner before 2026-11-26). It shows the Portal in its own window and runs the runner from the menu bar, showing Ready, Working, Paused or Needs attention. Staff download it from the Portal.
+_Avoid_: runner app, desktop app
+
+**Native bridge**:
+The typed set of messages between the web Portal and a native shell such as the Mac app. The page uses it to report the attention feed, and the shell uses it to open a page. It is the only way the two talk.
+_Avoid_: JS bridge, postMessage API
+
+**Attention feed**:
+What needs the signed-in person right now: the open Asks waiting on them and new alerts, already filtered by their notification preferences and leaving out their own actions. Every client shows the same feed.
+_Avoid_: notification list, inbox
+
+**Ask**:
+A note that waits on one named staff member to answer it: an approval request or a blocked task. It stays open until that person answers. Approval Asks wait on Peter, the only approver; blocked Asks wait on Peter until milestones or tasks have an owner. The Portal shows it as Needs you.
+_Avoid_: needs Peter, needs attention
+
+## Design
+
+**Canonical screen**:
+The one Figma screen for a view of a route, in its default populated state. Its 1440 Dark and 390 Dark frames are hand built; its Light frames are instances of them. Rules: `docs/design/figma-protocol.md`.
+_Avoid_: screen version, final screen, v2
+
+**Component set**:
+A Figma component with all its looks as variants, such as every `State` of a Button. A component state lives here, never as its own screen.
+_Avoid_: states frame, state screens
+
+**Local component**:
+An organism that only one Portal tab uses, kept in that tab page's Local components section. It moves to the library the second time another tab needs it.
+_Avoid_: page component, one-off component
+
+**Exploration**:
+The section on a tab page for side-by-side options and proposals waiting on Peter. It is empty when nothing is open; the chosen option is applied to the canonical screen and the rest go to Archive.
+_Avoid_: proposal section, iteration copy, sandbox

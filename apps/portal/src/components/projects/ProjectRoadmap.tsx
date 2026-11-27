@@ -4,6 +4,8 @@ import { groupMilestones } from '@convex/_lib/milestoneTasks';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
+import { clearSearchParam } from '@/lib/nav/clearSearchParam';
+import { MILESTONE_PARAM, milestoneFromSearch } from '@/lib/nav/portalLink';
 import { DoneGroup } from './DoneGroup';
 import { NeedMilestoneBanner } from './NeedMilestoneBanner';
 import {
@@ -170,6 +172,8 @@ export function ProjectRoadmap({
   const auth = usePortalAuth();
   const isPeter = isPeterEmail(auth.authUser?.email);
   const approveMilestone = useMutation(api.milestones.approve);
+  const approveDesign = useMutation(api.milestones.approveDesign);
+  const requestDesignChanges = useMutation(api.milestones.requestDesignChanges);
   const setMilestoneStatus = useMutation(api.milestones.setStatus);
   const advanceMilestone = useMutation(api.milestones.advance);
   const setTileLink = useMutation(api.milestones.setTileLink);
@@ -227,13 +231,16 @@ export function ProjectRoadmap({
     const params = new URLSearchParams(searchKey);
     setMilestoneLayout(params.get('layout') === 'board' ? 'board' : 'list');
     setDoneExpanded(params.get('done') === 'open');
+    // `?milestone=<id>` (a warehaus://milestone link from the Mac app) opens that milestone.
+    const linked = milestoneFromSearch(searchKey);
+    if (linked) setOpenMilestoneId(linked);
     if (!fixtures) return;
     setNeedDismissed(params.get('banner') === 'dismissed' || readNeedBannerDismissed(project.id));
     setHideNeedBanner(params.get('banner') === 'hidden');
     setDetailsPreview(params.get('details'));
     setTileStagePreview(params.get('tileStage'));
     setTileLinkPreview(params.get('tileLink'));
-    setTileApprove(params.get('tiles') === 'ready');
+    setTileApprove(params.get('tiles') === 'ready' || params.has('gate'));
     if (params.get('create') === 'milestone') setCreateOpen(true);
     const pane = params.get('pane') ?? params.get('tab');
     if (pane === 'details' || pane === 'milestones' || pane === 'resources' || pane === 'activity') setProjectTab(pane);
@@ -404,6 +411,23 @@ export function ProjectRoadmap({
           notes: '',
         })
       }
+      onApproveDesign={async () => {
+        if (fixtures) {
+          patchMilestone(milestone.id, { designApprovedAt: Date.now() });
+          return;
+        }
+        await approveDesign({ hostSlug, milestoneId: milestone.id as Id<'milestones'> });
+      }}
+      onRequestDesignChanges={async ({ notes, taskIds, newTasks }) => {
+        if (fixtures) return;
+        await requestDesignChanges({
+          hostSlug,
+          milestoneId: milestone.id as Id<'milestones'>,
+          notes,
+          taskIds: taskIds as Id<'tasks'>[],
+          newTasks,
+        });
+      }}
       onSetLink={async (field, url) => {
         if (fixtures) {
           patchMilestone(
@@ -459,7 +483,10 @@ export function ProjectRoadmap({
           activityError={activityError}
           onOpenTask={onOpenTask}
           resourceChoices={resourceChoices}
-          onBack={() => setOpenMilestoneId(null)}
+          onBack={() => {
+            setOpenMilestoneId(null);
+            clearSearchParam(MILESTONE_PARAM);
+          }}
           onBackToProjects={page ? onBackToProjects : undefined}
           onFixture={(patch) => patchMilestone(selected.id, patch)}
           closeout={staff ? closeoutControl(selected) : null}

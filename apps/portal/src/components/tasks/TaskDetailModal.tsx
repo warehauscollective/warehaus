@@ -1,21 +1,19 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useAction, useMutation } from 'convex/react';
+import { useMutation } from 'convex/react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
-import { TASK_STAGES, TASK_UNAVAILABLE, taskDescriptionEditMode, type TaskLinkKind } from '@warehaus/portal-sync';
+import { TASK_UNAVAILABLE, taskDescriptionEditMode, type TaskLinkKind } from '@warehaus/portal-sync';
 import { PortalModal, PortalModalStack } from '@/components/ui/PortalModal';
 import { CLOSE_TASK_FOR_SEARCH, TASK_DIALOG_MAX_HEIGHT } from '@/lib/nav/dockLayer';
 import { DueDateMenu, FieldError, OwnerMenu, Popover, ProjectMenu, type MoveTarget, type OwnerChoice } from '@/components/projects/milestoneDetailsEdit';
 import { OutlineButton, Pill, PortalCheckbox, PrimaryButton, StatusBadge } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
-import { displayedTaskStatus, TASK_STAGE_HINT } from '@/lib/data/taskStatus';
-import { StageConfirmSheet } from '@/components/projects/milestoneChrome';
+import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { AttachedResourceRow, resourceKind } from './AttachedResourceRow';
-import { StaffLiveFields } from './StaffLiveFields';
 import { TaskGlyph } from './TaskGlyph';
 import { AddSourceForm, TaskSources } from './TaskSources';
 import { projectMoveCopy, taskChangeNote } from './taskFieldCopy';
@@ -34,6 +32,7 @@ import { CloseoutToastHost, showCloseoutToast } from '@/components/closeout/clos
 import { OverflowMenu, OverflowSheet, OverflowSheetItems, type OverflowAction } from '@/components/closeout/OverflowMenu';
 import { beginFieldSave, FIELD_SAVE_ERROR, finishFieldSave, idleField, retryFieldSave, type FieldAttempt } from './taskFieldSave';
 import type { TaskSourceLink } from './sourcePanelFixtures';
+import { TASK_KIND_LABELS, TASK_KINDS, taskKind, type TaskKind } from '@convex/_lib/designGate';
 
 function ReviewTag() {
   return (
@@ -46,19 +45,16 @@ function ReviewTag() {
 /** One sheet at a time. A confirm or phone menu replaces the task sheet. Cancel clears it. */
 export function taskSheetOpen(input: {
   attach: boolean;
-  stage: boolean;
   archive?: boolean;
   project?: boolean;
   menu?: boolean;
-}): { detail: boolean; stage: boolean; attach: boolean; archive: boolean; project: boolean; menu: boolean } {
+}): { detail: boolean; attach: boolean; archive: boolean; project: boolean; menu: boolean } {
   const archive = Boolean(input.archive);
   const project = Boolean(input.project) && !archive;
   const menu = Boolean(input.menu) && !archive && !project;
   const attach = input.attach && !archive && !project && !menu;
-  const stage = input.stage && !attach && !archive && !project && !menu;
   return {
-    detail: !attach && !stage && !archive && !project && !menu,
-    stage,
+    detail: !attach && !archive && !project && !menu,
     attach,
     archive,
     project,
@@ -92,7 +88,6 @@ export function TaskDetailModal({
   clientName = null,
   hostSlug,
   live = false,
-  initialStageConfirm = null,
   initialArchive = false,
   initialMenu = null,
   initialFieldError = null,
@@ -116,8 +111,6 @@ export function TaskDetailModal({
   hostSlug?: string;
   /** Convex task id. Fixture rows skip the timeline query. */
   live?: boolean;
-  /** Fixture preview opens the phone stage confirm without a tap. */
-  initialStageConfirm?: string | null;
   /** Fixture preview opens the archive confirm without a tap. */
   initialArchive?: boolean;
   /** Fixture preview opens one field menu or the add-source form. */
@@ -134,11 +127,8 @@ export function TaskDetailModal({
 }) {
   const [attach, setAttach] = useState(false);
   const [asideNote, setAsideNote] = useState<string | null>(null);
-  const [stageConfirm, setStageConfirm] = useState<string | null>(null);
-  const moveStage = useMutation(api.tasks.moveStage);
-  const commitShipped = useAction(api.tasks.commitShipped);
   const moveStatus = useMutation(api.tasks.moveStatus);
-  const updateLiveFields = useMutation(api.tasks.updateLiveFields);
+  const setTaskKind = useMutation(api.milestones.setTaskKind);
   const setAssignee = useMutation(api.tasks.setAssignee);
   const setDueDate = useMutation(api.tasks.setDueDate);
   const moveTaskProject = useMutation(api.tasks.moveProject);
@@ -148,15 +138,23 @@ export function TaskDetailModal({
   // The header "…" menu. On a phone it is a sheet that takes the task sheet's place.
   const [overflowOpen, setOverflowOpen] = useState(false);
   const shownStatus = task ? displayedTaskStatus(task.status, task.stage) : '';
+  const [kindDraft, setKindDraft] = useState<{ id: string; kind: TaskKind } | null>(null);
+  const [kindError, setKindError] = useState<string | null>(null);
+  const shownKind: TaskKind = kindDraft && kindDraft.id === task?.id ? kindDraft.kind : taskKind(task ?? {});
+  const pickKind = (kind: TaskKind) => {
+    if (!task || kind === shownKind) return;
+    setKindDraft({ id: task.id, kind });
+    setKindError(null);
+    if (!live) return;
+    void setTaskKind({ hostSlug, taskId: task.id as Id<'tasks'>, kind }).catch((err) => {
+      setKindDraft(null);
+      setKindError(userFacingErrorMessage(err, 'Couldn’t change the kind. Nothing changed. Try again.'));
+    });
+  };
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (!attach) titleRef.current?.focus();
   }, [task?.id, unavailable, attach]);
-  useEffect(() => {
-    if (!phone || !initialStageConfirm) return;
-    if (!(TASK_STAGES as readonly string[]).includes(initialStageConfirm)) return;
-    setStageConfirm(initialStageConfirm);
-  }, [phone, initialStageConfirm]);
   type FieldMenu = 'assignee' | 'due' | 'project' | 'add-source';
   const [fieldMenu, setFieldMenu] = useState<FieldMenu | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(initialArchive);
@@ -187,7 +185,6 @@ export function TaskDetailModal({
   const phoneMenu = phone && fieldMenu != null && !archiveOpen && !projectTarget;
   const sheets = taskSheetOpen({
     attach,
-    stage: Boolean(stageConfirm),
     archive: archiveOpen || (phone && overflowOpen),
     project: Boolean(projectTarget),
     menu: phoneMenu,
@@ -338,45 +335,12 @@ export function TaskDetailModal({
       .then((undo) => showCloseoutToast({ ...toast, undo }))
       .catch((err) => showCloseoutToast({ kind: 'error', message: userFacingErrorMessage(err, CLOSEOUT_SAVE_ERROR) }));
   };
-  const returnStageFocus = useRef<string | null>(null);
-  const cancelStage = () => {
-    returnStageFocus.current = stageConfirm;
-    setStageConfirm(null);
-  };
-  useEffect(() => {
-    if (stageConfirm != null || !returnStageFocus.current) return;
-    const stage = returnStageFocus.current;
-    returnStageFocus.current = null;
-    const chip = [...document.querySelectorAll<HTMLButtonElement>('[data-stage-chip]')].find(
-      (button) => button.getAttribute('data-stage-chip') === stage,
-    );
-    chip?.focus({ preventScroll: true });
-  }, [stageConfirm]);
   const [replacedBySearch, setReplacedBySearch] = useState(false);
   useEffect(() => {
     const onSwap = () => setReplacedBySearch(true);
     window.addEventListener(CLOSE_TASK_FOR_SEARCH, onSwap);
     return () => window.removeEventListener(CLOSE_TASK_FOR_SEARCH, onSwap);
   }, []);
-  const saveStage = (stage: string) => {
-    if (!live || !task) return;
-    const request = {
-      hostSlug,
-      taskId: task.id as Id<'tasks'>,
-      expectedLastEditedTime: task.lastEditedTime ?? '',
-    };
-    const pending = stage === 'Shipped' ? commitShipped(request) : moveStage({ ...request, stage });
-    void pending.then((result) => {
-      const note = taskChangeNote(result);
-      if (note) setAsideNote(note);
-    });
-  };
-  const confirmStage = () => {
-    const stage = stageConfirm;
-    setStageConfirm(null);
-    if (!stage) return;
-    saveStage(stage);
-  };
 
   const detail = (
     <>
@@ -542,6 +506,39 @@ export function TaskDetailModal({
                 <Pill color={taskStatusColor(shownStatus, task.isDone)}>{shownStatus}</Pill>
               )}
             </Field>
+            {staff && task.milestoneId ? (
+              <Field label="Kind" row={phone}>
+                <div>
+                  <div role="radiogroup" aria-label="Kind" data-testid="task-kind" className="mt-1 inline-flex gap-1" style={{ padding: 2, border: '1px solid var(--border-2)', borderRadius: 9 }}>
+                    {TASK_KINDS.map((kind) => (
+                      <button
+                        key={kind}
+                        type="button"
+                        role="radio"
+                        aria-checked={shownKind === kind}
+                        data-testid={`task-kind-${kind}`}
+                        onClick={() => pickKind(kind)}
+                        className="focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2"
+                        style={{
+                          border: 0,
+                          borderRadius: 7,
+                          padding: '4px 12px',
+                          background: shownKind === kind ? 'var(--surface-2)' : 'transparent',
+                          color: shownKind === kind ? 'var(--fg)' : 'var(--muted)',
+                          font: 'inherit',
+                          fontSize: 14,
+                          lineHeight: '21px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {TASK_KIND_LABELS[kind]}
+                      </button>
+                    ))}
+                  </div>
+                  {kindError ? <p role="alert" style={{ margin: '4px 0 0', color: 'var(--danger-text)', fontSize: 13 }}>{kindError}</p> : null}
+                </div>
+              </Field>
+            ) : null}
             {staff || shownAssignee ? (
               <Field label="Assignee" row={phone}>
                 {staff ? (
@@ -590,7 +587,7 @@ export function TaskDetailModal({
                         value={shownDate}
                         onPick={pickDate}
                         onClose={closeFieldMenu}
-                        foot="Saves as soon as you pick. Syncs to Notion (Date) when write-back is on."
+                        foot="Saves as soon as you pick."
                       />
                     </Popover>
                   ) : null}
@@ -649,29 +646,6 @@ export function TaskDetailModal({
                 </span>
               )}
             </Field>
-            {staff ? (
-              <StaffLiveFields
-                row={phone}
-                estimate={task.estimate}
-                priority={task.priority}
-                source={task.source}
-                published={task.publishToWarehaus}
-                done={task.isDone}
-                onSave={async (patch) => {
-                  if (!live) return { ok: false, error: 'Nothing was sent.' };
-                  try {
-                    return await updateLiveFields({
-                      hostSlug,
-                      taskId: task.id as Id<'tasks'>,
-                      expectedLastEditedTime: task.lastEditedTime ?? '',
-                      ...patch,
-                    });
-                  } catch (err) {
-                    return { ok: false, error: userFacingErrorMessage(err, 'Nothing was sent.') };
-                  }
-                }}
-              />
-            ) : null}
             </div>
             {staff ? (
               <div
@@ -711,58 +685,6 @@ export function TaskDetailModal({
               </div>
             ) : null}
             </div>
-            {staff ? (
-              <div className="flex flex-col gap-3" style={{ order: phone ? 4 : undefined }}>
-                <div className="flex items-center gap-2">
-                  <h3 className="ds-mono" style={{ fontSize: 12, letterSpacing: '2.64px', color: 'var(--fg)', margin: 0 }}>STAGE</h3>
-                  <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>visible to client</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {TASK_STAGES.map((stage) => {
-                    const current = task.stage === stage;
-                    return (
-                      <button
-                        key={stage}
-                        type="button"
-                        data-stage-chip={stage}
-                        aria-pressed={task.stage === stage}
-                        onClick={() => {
-                          if (current) return;
-                          if (phone) {
-                            setStageConfirm(stage);
-                            return;
-                          }
-                          saveStage(stage);
-                        }}
-                        className="ds-mono"
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 8,
-                          border: current ? '1px solid var(--fg)' : '1px solid var(--border-2, var(--border))',
-                          borderRadius: 999,
-                          padding: '8px 12px',
-                          background: current ? 'var(--fg)' : 'transparent',
-                          color: current ? 'var(--bg)' : 'var(--fg)',
-                          cursor: 'pointer',
-                          fontSize: 13,
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {stage}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p data-testid="task-stage-hint" style={{ fontSize: 12, lineHeight: '17px', color: 'var(--muted)', margin: 0 }}>
-                  {TASK_STAGE_HINT}
-                </p>
-              </div>
-            ) : (
-              <div style={{ order: phone ? 4 : undefined }}>
-                <Field label="Stage" row={phone}>{task.stage ?? '—'}</Field>
-              </div>
-            )}
             {staff ? (
               <button
                 type="button"
@@ -809,23 +731,6 @@ export function TaskDetailModal({
                 {detail}
               </PortalModal>
             ),
-          },
-          {
-            key: 'stage',
-            open: sheets.stage,
-            node: stageConfirm ? (
-              <PortalModal
-                testId="stage-confirm"
-                label={`Move to ${stageConfirm}`}
-                onClose={cancelStage}
-                narrow
-                sheet="bottom"
-                focusCancel
-                showFooter={false}
-              >
-                <StageConfirmSheet hideGrabber stage={stageConfirm} onCancel={cancelStage} onConfirm={confirmStage} />
-              </PortalModal>
-            ) : null,
           },
           {
             key: 'attach',
@@ -963,7 +868,7 @@ export function TaskDetailModal({
                   <OwnerMenu people={peopleChoices} currentId={shownAssigneeId} currentName={shownAssignee} onPick={pickAssignee} onClose={closeFieldMenu} sheet foot="Saves as soon as you pick. Saved in the Portal." />
                 ) : null}
                 {fieldMenu === 'due' ? (
-                  <DueDateMenu value={shownDate} onPick={pickDate} onClose={closeFieldMenu} sheet foot="Saves as soon as you pick. Syncs to Notion (Date) when write-back is on." />
+                  <DueDateMenu value={shownDate} onPick={pickDate} onClose={closeFieldMenu} sheet foot="Saves as soon as you pick." />
                 ) : null}
                 {fieldMenu === 'project' ? (
                   <ProjectMenu

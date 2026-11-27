@@ -26,6 +26,23 @@ main {
   min-height: 100dvh;
 }
 
+/* Mac app window (ADR-0006). The head boot script sets data-shell="mac" inside
+   the app. The native title bar is transparent and draws the window buttons
+   over a 40px drag strip, so the page starts below it. A browser keeps 0. */
+:root {
+  --shell-inset-top: 0px;
+}
+html[data-shell='mac'] {
+  --shell-inset-top: 40px;
+}
+html[data-shell='mac'] .portal-chrome {
+  padding-top: var(--shell-inset-top);
+}
+html[data-shell='mac'] .portal-chrome main {
+  min-height: 0;
+  height: calc(100dvh - var(--shell-inset-top));
+}
+
 /* Staff source titles. Foreground keeps contrast on the light rail.
    --info is 3.62:1 there, so it is not a link color. */
 .ds-scope a.task-source-link {
@@ -275,7 +292,7 @@ html.light .ds-scope {
 @media (min-width: 1024px) {
   html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] {
     position: fixed;
-    top: 24px;
+    top: calc(24px + var(--shell-inset-top, 0px));
     left: 24px;
     z-index: 30;
     box-sizing: border-box;
@@ -942,7 +959,7 @@ body:has([data-dock-layer='task']):not(:has(.portal-modal-scrim:not([data-dock-l
 }
 @media (min-width: 1024px) {
   .portal-created-toast {
-    top: 72px;
+    top: calc(72px + var(--shell-inset-top, 0px));
     bottom: auto;
   }
 }
@@ -950,5 +967,64 @@ body:has([data-dock-layer='task']):not(:has(.portal-modal-scrim:not([data-dock-l
 @media (max-width: 767px) {
   .client-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Building indicator, Figma Atom/Indicator/Building (1302:28943). */
+.building-indicator {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+}
+.building-indicator-dot {
+  width: 58%;
+  height: 58%;
+  border-radius: 999px;
+  background: var(--info);
+}
+.building-indicator[data-state='live']::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--info);
+  opacity: 0.35;
+  animation: building-pulse 1.6s ease-out infinite;
+}
+.building-indicator[data-state='queued'] .building-indicator-dot {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  background: transparent;
+  border: 1.5px dashed var(--muted);
+}
+.building-indicator[data-state='blocked'] .building-indicator-dot {
+  background: var(--danger);
+}
+.building-indicator[data-state='stalled'] .building-indicator-dot {
+  background: var(--warning);
+}
+@keyframes building-pulse {
+  0% {
+    transform: scale(0.55);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .building-indicator[data-state='live']::before {
+    animation: none;
+    transform: scale(1);
+    opacity: 0.25;
+  }
+}
+@media (max-width: 767px) {
+  .building-suffix {
+    display: none;
   }
 }

@@ -9,11 +9,15 @@ You are working one task on a Warehaus Portal milestone. Text between `<<<` and 
 Done when:
 {{goals}}
 
+{{designApproval}}
+
 ## Your task
 
 Task {{taskOrder}}: **{{taskTitle}}**
 
 {{taskDetail}}
+
+{{kindRules}}
 
 ## Rules
 

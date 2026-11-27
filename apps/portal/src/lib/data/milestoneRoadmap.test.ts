@@ -802,3 +802,46 @@ describe('MilestoneDetailView', () => {
     assert.match(html, /hidden md:block[^>]*>\s*DETAILS\s*</);
   });
 });
+
+describe('design gate on the tile', () => {
+  const staff = fixtureMilestones({ id: 'p-site', name: 'Northwind site' }, FIXTURE_TASKS, 'staff');
+  const gateTile = (phase: string) => applyFixtureMilestonePreview(staff, `?gate=${phase}`)[0];
+
+  it('derives each Building phase from the task set and the approval', () => {
+    assert.deepEqual(
+      ['designs', 'waiting', 'build'].map((phase) => gateTile(phase).designGate?.phase),
+      ['designs', 'design-approval', 'build'],
+    );
+    assert.equal(gateTile('waiting').designGate?.buildLocked, true);
+    assert.equal(gateTile('build').designGate?.buildLocked, false);
+  });
+
+  it('shows the phase after Building, and Peter gets Request design changes beside Approve designs', () => {
+    const waiting = renderTile({ staff: true, isPeter: true, milestone: gateTile('waiting') });
+    assert.match(waiting, /data-testid="building-phase"[^>]*> · Waiting on design approval/);
+    assert.match(waiting, /data-testid="tile-design-waiting"/);
+    assert.match(waiting, /data-testid="tile-approve-designs"/);
+    // Without a handler (a client or fixture card) the action stays hidden.
+    assert.doesNotMatch(waiting, /tile-request-design-changes/);
+    const withHandler = renderToStaticMarkup(
+      createElement(MilestoneListCard, {
+        milestone: gateTile('waiting'),
+        staff: true,
+        isPeter: true,
+        onOpen: () => undefined,
+        onApproveDesign: async () => undefined,
+        onRequestDesignChanges: async () => undefined,
+      }),
+    );
+    assert.match(withHandler, /data-testid="tile-request-design-changes"/);
+    const build = renderTile({ staff: true, isPeter: true, milestone: gateTile('build') });
+    assert.doesNotMatch(build, /building-phase/);
+    assert.doesNotMatch(build, /tile-request-design-changes/);
+  });
+
+  it('never shows a client the phase', () => {
+    const tile = { ...gateTile('designs') };
+    const client = renderTile({ staff: false, milestone: tile });
+    assert.doesNotMatch(client, /building-phase|tile-approve-designs/);
+  });
+});

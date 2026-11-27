@@ -20,6 +20,7 @@
 
 import type { Doc, Id } from '../_generated/dataModel';
 import type { MutationCtx, QueryCtx } from '../_generated/server';
+import { claimableUnderGate, designGate } from './designGate';
 import { isPortalOwnedTask, isToDoTask } from './milestoneTasks';
 
 /** Most tasks one read looks at. Over it, the read refuses instead of reading part of the set. */
@@ -162,6 +163,7 @@ export type ClaimRow = TaskSetRow & {
   isDone: boolean;
   claimedBy?: string | null;
   milestoneOrder?: number | null;
+  kind?: string | null;
 };
 
 export type ClaimableTasks<T extends ClaimRow> = {
@@ -178,15 +180,22 @@ function byOrder(a: ClaimRow, b: ClaimRow): number {
 /**
  * What a runner may take from the tasks linked to a milestone. A subtask is
  * never taken, and a task that syncs from Notion is left for a person,
- * because a status written here would be overwritten by the next pull. Pure.
+ * because a status written here would be overwritten by the next pull.
+ * On a visual milestone whose designs Peter has not approved, only design
+ * tasks are offered (the design gate, `designGate.ts`). Pure.
  */
-export function classifyClaimable<T extends ClaimRow>(rows: readonly T[]): ClaimableTasks<T> {
+export function classifyClaimable<T extends ClaimRow>(
+  rows: readonly T[],
+  options: { designApprovedAt?: number | null } = {},
+): ClaimableTasks<T> {
+  const gate = designGate(rows, options.designApprovedAt);
   const buildable = rows.filter(
     (task) =>
       task.archived !== true &&
       !task.parentTaskId &&
       taskState(task) === 'open' &&
-      isPortalOwnedTask(task),
+      isPortalOwnedTask(task) &&
+      claimableUnderGate(task, gate),
   );
   const nextClaimable = buildable.filter((task) => !task.claimedBy && isToDoTask(task)).sort(byOrder)[0] ?? null;
   const openBuild = buildable.filter((task) => isToDoTask(task) || task.status === 'In Progress').sort(byOrder);
@@ -209,6 +218,7 @@ export function loadedTask(doc: Doc<'tasks'>): LoadedTask {
     notionPageId: doc.notionPageId ?? null,
     claimedBy: doc.claimedBy ?? null,
     milestoneOrder: doc.milestoneOrder ?? null,
+    kind: doc.kind ?? null,
     doc,
   };
 }
@@ -276,9 +286,9 @@ export async function loadMilestoneTaskSet(
  */
 export async function loadClaimableTasks(
   ctx: QueryCtx | MutationCtx,
-  milestone: MilestoneRef,
+  milestone: MilestoneRef & { designApprovedAt?: number | null },
 ): Promise<({ ok: true } & ClaimableTasks<LoadedTask>) | TooMany> {
   const linked = await linkedDocs(ctx, milestone);
   if (linked.length > MILESTONE_TASK_SET_CAP) return { ok: false, reason: TOO_MANY_TASKS };
-  return { ok: true, ...classifyClaimable(linked.map(loadedTask)) };
+  return { ok: true, ...classifyClaimable(linked.map(loadedTask), { designApprovedAt: milestone.designApprovedAt }) };
 }

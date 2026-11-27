@@ -28,11 +28,43 @@ describe('runner client', () => {
     assert.deepEqual(seen[0].body, { runId: 'r1', status: 'failed', reason: 'x' });
   });
 
+  it('releases a run with its reason and reset time', async () => {
+    const { seen, fetch } = recorder();
+    const api = runnerClient({ url: 'u', token: 't', runnerId: 'r', fetch });
+    await api.release({ runId: 'r1', reason: 'Claude usage limit', until: 1_800_000_000_000 });
+    await api.release({ runId: 'r2' });
+    assert.deepEqual(seen.map((call) => [call.url, call.body]), [
+      [`u${RUNNER_PATHS.release}`, { runId: 'r1', reason: 'Claude usage limit', until: 1_800_000_000_000 }],
+      ['u/agent/release', { runId: 'r2' }],
+    ]);
+  });
+
   it('throws "<path>: <error>" on a refusal', async () => {
     const { fetch } = recorder(409, { error: 'Run is not yours' });
     await assert.rejects(runnerClient({ url: 'u', token: 't', runnerId: 'r', fetch }).claim({ mode: 'headless', repos: [] }), {
       message: '/agent/claim: Run is not yours',
+      status: 409,
     });
+  });
+
+  it('sends a paused flag, run slots and an unpair call when asked', async () => {
+    const { seen, fetch } = recorder();
+    const api = runnerClient({ url: 'u', token: 't', runnerId: 'r', fetch });
+    await api.claim({ mode: 'headless', repos: [], paused: true });
+    await api.claim({ mode: 'headless', repos: [], slots: 3, held: ['run1'] });
+    await api.ping({ paused: false });
+    await api.ping({ held: ['run1', 'run2'] });
+    await api.ping({ held: [] });
+    await api.unpair();
+    assert.deepEqual(seen.map((call) => [call.url, call.body]), [
+      [`u${RUNNER_PATHS.claim}`, { mode: 'headless', repos: [], paused: true }],
+      [`u${RUNNER_PATHS.claim}`, { mode: 'headless', repos: [], slots: 3, held: ['run1'] }],
+      ['u/agent/ping', { paused: false }],
+      // Protocol 4: the runs it holds, each getting a sign of life.
+      ['u/agent/ping', { held: ['run1', 'run2'] }],
+      ['u/agent/ping', {}],
+      [`u${RUNNER_PATHS.unpair}`, {}],
+    ]);
   });
 });
 

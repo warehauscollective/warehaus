@@ -64,7 +64,7 @@ import { isProjectDetailPath, leaveProjectDetail, projectStateAfterNav } from '@
 import { keepProjectWhileLoading, readTaskListView } from '@/lib/nav/taskListLocation';
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
 import { clearPortalReturn, peekPortalReturn, takePortalReturn, taskCloseLabel } from '@/lib/nav/portalReturn';
-import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
+import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute, tasksWithOpened } from '@/lib/nav/boardRoute';
 import { DocsBlock } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
 import { useFixtureCreatePreview, useWritebackEnabled } from '@/hooks/useWritebackEnabled';
@@ -134,6 +134,11 @@ export function ProjectsContent() {
     fixtures,
   });
   const { view, ready: viewReady, change: setView } = listView;
+  // A task opened from a milestone card, with its nested child tasks, that the
+  // page's own list may not hold. Only the task route and the task modal read
+  // it. Lists and counts do not.
+  const [openedTask, setOpenedTask] = useState<PortalTask[] | null>(null);
+  const modalTasks = useMemo(() => tasksWithOpened(tasks, openedTask), [tasks, openedTask]);
   const [taskView, setTaskView] = useState<'board' | 'table'>('board');
   const [fixtureTaskId, setFixtureTaskId] = useState<string | null>(null);
   const pathname = usePathname() || '';
@@ -252,7 +257,7 @@ export function ProjectsContent() {
   );
   const route = resolveBoardRoute({
     pathname: fixtures && fixtureTaskId ? `/tasks/${fixtureTaskId}` : pathname,
-    tasks,
+    tasks: modalTasks,
     visibleProjectIds: accessibleProjectIds,
   });
   const selectedId = route.view === 'board' ? route.projectId : openId;
@@ -288,6 +293,7 @@ export function ProjectsContent() {
   }, [pathname]);
 
   const closeTask = () => {
+    setOpenedTask(null);
     const back = takePortalReturn();
     if (fixtures) {
       setFixtureTaskId(null);
@@ -423,8 +429,9 @@ export function ProjectsContent() {
       return doc.publishToWarehaus !== false && doc.status !== 'Draft';
     });
     const summary = projectSummaryVisibility(isStaff, openProject);
-    const openTask = (task: PortalTask) => {
+    const openTask = (task: PortalTask, nested: PortalTask[] = []) => {
       clearPortalReturn();
+      setOpenedTask([task, ...nested]);
       setOpenId(openProject.id);
       if (fixtures) setFixtureTaskId(task.id);
       else router.push(`/tasks/${task.id}`);
@@ -496,7 +503,7 @@ export function ProjectsContent() {
         {routeTaskId ? (
           <ProjectTaskOverlay
             taskId={routeTaskId}
-            tasks={tasks}
+            tasks={modalTasks}
             staff={isStaff}
             hostSlug={hostSlug}
             fixtures={fixtures}
@@ -811,7 +818,6 @@ function ProjectTaskOverlay({
       clientName={clientName}
       hostSlug={hostSlug}
       live={!fixtures}
-      initialStageConfirm={phone ? review.stageConfirm : null}
       initialArchive={review.archive}
       initialMenu={review.menu}
       initialFieldError={review.fieldError}

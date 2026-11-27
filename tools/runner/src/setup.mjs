@@ -7,7 +7,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { join } from 'node:path';
 import { RUNNER_PAIR_PATHS } from '../../../packages/runner-protocol/index.mjs';
@@ -38,6 +38,21 @@ export function readKeychainSecret(deploymentName, id) {
   return found.status === 0 ? found.stdout.trim() : '';
 }
 
+/** Deletes this runner's Keychain entry. True when it is gone, including when there was none. */
+export function deleteKeychainSecret(deploymentName, id) {
+  if (process.platform !== 'darwin' || !id) return true;
+  const removed = spawnSync('security', ['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', keychainAccount(deploymentName, id)], {
+    stdio: 'ignore',
+  });
+  // 44 is errSecItemNotFound: nothing to delete.
+  return removed.status === 0 || removed.status === 44;
+}
+
+/** Deletes the file setup wrote for this deployment. */
+export function removeSavedConfig(production) {
+  rmSync(join(configDir(), deploymentFor(production).configFile), { force: true });
+}
+
 function storeKeychainSecret(deploymentName, id, secret) {
   // `security` takes the password as an argument. It is visible to `ps` for the moment the command runs.
   const stored = spawnSync(
@@ -66,7 +81,12 @@ async function post(url, body) {
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
-export async function runSetup({ production, id, say }) {
+/**
+ * `report` is set when the Mac app runs `setup --supervised`: it gets pairing,
+ * paired and pair_expired lines and opens the Portal itself (with the code
+ * filled in), so this process opens no browser.
+ */
+export async function runSetup({ production, id, say, report = null }) {
   if (process.platform !== 'darwin') throw new Error('Setup stores the runner secret in the macOS Keychain, so it runs on a Mac.');
   const deployment = deploymentFor(production);
   const agentUrl = (process.env.PORTAL_AGENT_URL || deployment.agentUrl).replace(/\/+$/, '');
@@ -85,7 +105,11 @@ export async function runSetup({ production, id, say }) {
   say(`Proposed id:  ${started.proposedRunnerId} (${production ? 'production' : 'shared dev'})`);
   say(`Open any project in the Portal, tap the runner chip, and enter the code. Opening ${portalUrl}`);
   say('If no browser opens, go there yourself. The code expires in 10 minutes.');
-  spawnSync('open', [portalUrl], { stdio: 'ignore' });
+  if (report) {
+    report('pairing', { code: started.code, runnerId: started.proposedRunnerId, expiresAt: started.expiresAt, production });
+  } else {
+    spawnSync('open', [portalUrl], { stdio: 'ignore' });
+  }
 
   for (;;) {
     await sleep(POLL_EVERY_MS);
@@ -96,7 +120,10 @@ export async function runSetup({ production, id, say }) {
       say(`Waiting… (${error.message})`);
       continue;
     }
-    if (status.status === 'expired') throw new Error('The code expired before anyone confirmed it. Run setup again.');
+    if (status.status === 'expired') {
+      report?.('pair_expired');
+      throw new Error('The code expired before anyone confirmed it. Run setup again.');
+    }
     if (status.status !== 'confirmed') continue;
     const runnerId = String(status.runnerId);
     storeKeychainSecret(deployment.name, runnerId, secret);
@@ -107,6 +134,7 @@ export async function runSetup({ production, id, say }) {
     const flag = production ? ' --production' : '';
     say(`Paired as ${runnerId}. The secret is in the Keychain (${KEYCHAIN_SERVICE}); ${path} has the URL and id.`);
     say(`Start it with: npm run runner -- start${flag}. It keeps its own clones under ~/warehaus-runner/repos.`);
+    report?.('paired', { runnerId });
     return { runnerId };
   }
 }

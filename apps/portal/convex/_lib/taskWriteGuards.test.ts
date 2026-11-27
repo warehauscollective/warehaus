@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { enqueue } from '../sync/outbox';
-import { enqueueCreate } from '../sync/taskWrite';
+import type { Doc } from '../_generated/dataModel';
+import { createInMilestone } from '../sync/taskWrite';
+import { PORTAL_MILESTONE_TASK_SOURCE } from './milestoneTasks';
 import { createTask, moveStage, moveStatus, saveShipped, updateLiveFields } from '../tasks';
 import { PortalAuthError } from './identity';
 import { memoryCtx, type MemoryCtx, type Respond, type RunCall } from './memoryCtx.testkit';
@@ -19,6 +21,7 @@ const queued: Respond = () => ({ ok: true, outboxId: 'notionOutbox:1', duplicate
 function chain(t: MemoryCtx): Respond {
   const registry: Record<string, unknown> = {
     [OUTBOX]: enqueue,
+    'sync/taskWrite:createInMilestone': createInMilestone,
   };
   const respond: Respond = (call: RunCall) => {
     const fn = registry[call.name];
@@ -57,79 +60,71 @@ describe('createTask project org', () => {
     const northwindId = seedOrg(t, { slug: 'northwind' });
     const otherId = seedOrg(t, { slug: 'other' });
     seedProject(t, otherId, { notionPageId: 'notion-proj' });
-    const result = await t.call<Result>(
-      enqueueCreate,
-      { orgId: northwindId, name: 'Homepage', status: 'To Do', projectNotionId: 'notion-proj', externalId: 'wh_tsk_homepage' },
-      { respond: queued },
-    );
+    const result = await t.call<Result>(createInMilestone, {
+      orgId: northwindId,
+      name: 'Homepage',
+      status: 'To Do',
+      projectNotionId: 'notion-proj',
+      externalId: 'wh_tsk_homepage',
+    });
     assert.deepEqual(result, { ok: false, error: 'Project is not in this client' });
-    assert.equal(t.runs.length, 0);
+    assert.equal(t.rows('tasks').length, 0);
   });
+});
 
-  it('queues a create when the project belongs to the org', async () => {
-    const { t, orgId, projectId } = northwind();
-    const milestoneId = seedMilestone(t, orgId, projectId, { status: 'Building' });
-    const result = await t.call<Result>(
-      enqueueCreate,
-      {
-        orgId,
-        name: 'Homepage',
-        status: 'To Do',
-        projectNotionId: 'notion-proj',
-        externalId: 'wh_tsk_homepage',
-        milestoneId,
-        actorId: 'contact-staff',
-      },
-      { respond: queued },
-    );
-    assert.equal(result.ok, true);
-    assert.equal(t.runs.length, 1);
-    assert.equal(t.runs[0]?.name, OUTBOX);
-    assert.equal(t.runs[0]?.args.actor, 'staff');
-    assert.equal(t.runs[0]?.args.orgId, orgId);
-  });
-
-  it('forwards milestoneId from createTask into the outbox payload', async () => {
+describe('Portal New task', () => {
+  it('lands the task on its milestone at once, with no outbox row and no Notion write', async () => {
     const { t, orgId, projectId } = northwind();
     const launch = seedMilestone(t, orgId, projectId, { status: 'Building' });
+    const created = await t.call<Result>(
+      createTask,
+      { orgId, name: '  Homepage ', status: 'To Do', projectNotionId: 'notion-proj', externalId: 'wh_tsk_homepage', milestoneId: launch },
+      { as: 'staff', respond: chain(t) },
+    );
+    assert.equal(created.ok, true, JSON.stringify(created));
+    const task = t.row(created.taskId as string) as Doc<'tasks'>;
+    assert.equal(task.milestoneId, launch);
+    assert.equal(task.milestoneOrder, 0);
+    assert.equal(task.name, 'Homepage');
+    assert.equal(task.source, PORTAL_MILESTONE_TASK_SOURCE);
+    assert.equal(task.stage, 'Building');
+    assert.equal(task.publishToWarehaus, false);
+    assert.equal(outboxRuns(t).length, 0);
+    assert.equal(t.rows('notionOutbox').length, 0);
+
+    const second = await t.call<Result>(
+      createTask,
+      { orgId, name: 'Footer', status: 'To Do', projectNotionId: 'notion-proj', externalId: 'wh_tsk_footer', milestoneId: launch },
+      { as: 'staff', respond: chain(t) },
+    );
+    assert.equal((t.row(second.taskId as string) as Doc<'tasks'>).milestoneOrder, 1);
+
+    const again = await t.call<Result>(
+      createTask,
+      { orgId, name: 'Homepage', status: 'To Do', projectNotionId: 'notion-proj', externalId: 'wh_tsk_homepage', milestoneId: launch },
+      { as: 'staff', respond: chain(t) },
+    );
+    assert.deepEqual([again.taskId, again.duplicate], [created.taskId, true]);
+    assert.equal(t.rows('tasks').length, 2);
+  });
+
+  it('refuses no milestone, another project, a Shipped milestone and an unknown status', async () => {
+    const { t, orgId, projectId } = northwind();
     const otherProject = seedProject(t, orgId);
     const other = seedMilestone(t, orgId, otherProject, { status: 'Building' });
     const shippedId = seedMilestone(t, orgId, projectId, { status: 'Shipped', approval: 'approved' });
-
-    const created = await t.call<Result>(
-      createTask,
-      { orgId, name: 'Homepage', status: 'To Do', projectNotionId: 'notion-proj', externalId: 'wh_tsk_homepage', milestoneId: launch },
-      { as: 'staff', respond: queued },
-    );
-    assert.equal(created.ok, true);
-    assert.equal(t.runs[0]?.name, 'sync/taskWrite:enqueueCreate');
-    assert.equal(t.runs[0]?.args.milestoneId, launch);
-    assert.equal(t.runs[0]?.args.actorId, staffContactId(t));
-
+    const launch = seedMilestone(t, orgId, projectId, { status: 'Building' });
     const base = { orgId, name: 'Homepage', status: 'To Do', projectNotionId: 'notion-proj' };
-    const accepted = await t.call<Result>(
-      enqueueCreate,
-      { ...base, externalId: 'wh_tsk_homepage', milestoneId: launch, actorId: 'contact-staff' },
-      { respond: queued },
-    );
-    assert.equal(accepted.ok, true);
-    assert.equal(outboxRuns(t).length, 1);
-    const payload = JSON.parse(String(outboxRuns(t)[0]?.args.payload ?? '{}')) as { properties?: object; milestoneId?: string };
-    assert.equal(payload.milestoneId, launch);
-    assert.equal(typeof payload.properties, 'object');
 
-    const rejected = await t.call<Result>(enqueueCreate, { ...base, externalId: 'wh_tsk_homepage_2', milestoneId: other }, { respond: queued });
-    assert.deepEqual(rejected, { ok: false, error: 'Milestone is not on this project' });
-    assert.equal(outboxRuns(t).length, 1);
-
-    const plain = await t.call<Result>(enqueueCreate, { ...base, externalId: 'wh_tsk_homepage_3' }, { respond: queued });
-    // No milestone: nothing is queued. A task only exists inside a milestone.
+    const plain = await t.call<Result>(createInMilestone, { ...base, externalId: 'wh_tsk_1' });
     assert.deepEqual(plain, { ok: false, error: 'Choose a milestone. A task only exists inside a milestone.' });
-    assert.equal(outboxRuns(t).length, 1);
-
-    const shipped = await t.call<Result>(enqueueCreate, { ...base, externalId: 'wh_tsk_homepage_4', milestoneId: shippedId }, { respond: queued });
+    const wrong = await t.call<Result>(createInMilestone, { ...base, externalId: 'wh_tsk_2', milestoneId: other });
+    assert.deepEqual(wrong, { ok: false, error: 'Milestone is not on this project' });
+    const shipped = await t.call<Result>(createInMilestone, { ...base, externalId: 'wh_tsk_3', milestoneId: shippedId });
     assert.deepEqual(shipped, { ok: false, error: 'This milestone has shipped. Add the task to a new milestone.' });
-    assert.equal(outboxRuns(t).length, 1);
+    const bad = await t.call<Result>(createInMilestone, { ...base, status: 'Nope', externalId: 'wh_tsk_4', milestoneId: launch });
+    assert.equal(bad.ok, false);
+    assert.equal(t.rows('tasks').length, 0);
   });
 });
 
@@ -252,6 +247,44 @@ describe('move authorization', () => {
     assert.equal(t.row(taskId)?.stagePendingAt, undefined, 'nothing is pending when nothing was queued');
     assert.equal(t.rows('notionOutbox').length, 0);
     assert.deepEqual(t.scheduled, []);
+  });
+
+  it('saves a move to Blocked and what it is waiting on as one task change', async () => {
+    const { t, taskId } = moveWorld();
+    await withWriteback(undefined, async () => {
+      const options = { as: 'staff' as const, respond: chain(t) };
+      const moved = await t.call<Result>(
+        moveStatus,
+        { taskId, status: 'Blocked', expectedLastEditedTime: EDITED, nextAction: '  Photography from the client ' },
+        options,
+      );
+      assert.equal(moved.ok, true);
+      assert.equal(t.row(taskId)?.status, 'Blocked');
+      assert.equal(t.row(taskId)?.nextAction, 'Photography from the client');
+      const stamps = t.row(taskId)?.fieldStamps as Record<string, { updatedAt: number }>;
+      assert.equal(stamps.status?.updatedAt, stamps.nextAction?.updatedAt, 'one write stamps both fields');
+
+      // Undo and every other move send no next action, and leave it alone.
+      const back = await t.call<Result>(moveStatus, { taskId, status: 'To Do', expectedLastEditedTime: EDITED }, options);
+      assert.equal(back.ok, true);
+      assert.equal(t.row(taskId)?.status, 'To Do');
+      assert.equal(t.row(taskId)?.nextAction, 'Photography from the client');
+    });
+  });
+
+  it('refuses the whole move when the next action is too long', async () => {
+    const { t, taskId } = moveWorld();
+    await withWriteback(undefined, async () => {
+      const result = await t.call<Result>(
+        moveStatus,
+        { taskId, status: 'Blocked', expectedLastEditedTime: EDITED, nextAction: 'x'.repeat(501) },
+        { as: 'staff' as const, respond: chain(t) },
+      );
+      assert.equal(result.ok, false);
+      assert.equal(result.error, 'Next action is too long');
+    });
+    assert.equal(t.row(taskId)?.status, 'To Do');
+    assert.equal(t.row(taskId)?.nextAction, undefined);
   });
 
   it('refuses a staff move against a stale last edit time and writes nothing', async () => {
