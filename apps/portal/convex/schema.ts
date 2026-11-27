@@ -556,17 +556,8 @@ export default defineSchema({
     reason: v.optional(v.union(v.literal('approval'), v.literal('blocked'), v.literal('design'))),
     /** The blocked task. Absent on an approval request. */
     taskId: v.optional(v.id('tasks')),
-    /**
-     * The flag `open` replaced. Only the one-off migration in
-     * `_lib/askMigration.ts` reads it, through `by_needsPeter`, and clears it
-     * as it turns each row into an Ask waiting on Peter. The field and that
-     * index stay until the migration has run on production; a deploy that
-     * drops them before then fails on the rows that still carry the flag.
-     */
-    needsPeter: v.optional(v.literal('open')),
   })
     .index('by_milestone_createdAt', ['milestoneId', 'createdAt'])
-    .index('by_needsPeter', ['needsPeter', 'createdAt'])
     .index('by_open', ['open', 'createdAt'])
     .index('by_waitingOn_open', ['waitingOn', 'open', 'createdAt'])
     .index('by_milestone_open', ['milestoneId', 'open']),

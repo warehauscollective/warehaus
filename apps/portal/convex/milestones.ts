@@ -88,7 +88,6 @@ import {
 } from './_lib/milestoneTasks';
 import { normalizeLocalPreviewUrl, tileLinkChangeDecision, type TileLinkField } from './_lib/tileLinks';
 import { closeAsksOnMilestone, peterContactId } from './_lib/askStore';
-import { ASK_MIGRATION_BATCH, migrateNeedsPeterBatch } from './_lib/askMigration';
 import {
   MILESTONE_ONE_NAME,
   MILESTONE_ONE_OBJECTIVE,
@@ -2637,24 +2636,6 @@ export const backfillTaskOrigins = internalMutation({
       isDone: page.isDone,
     };
   },
-});
-
-/**
- * One-off: turns the notes still flagged with the old needs-Peter flag into
- * Asks waiting on Peter. Bounded: one indexed read of the old open index, at
- * most `limit` rows a call (default and cap in `_lib/askMigration.ts`). A
- * migrated row leaves that index, so run it again while `more` is true.
- *
- * Dry run, writes nothing:
- *   npx convex run milestones:migrateNeedsPeterToAsks
- * Apply, on the shared dev deployment first, after that deploy is current:
- *   npx convex run milestones:migrateNeedsPeterToAsks '{"apply":true}'
- * Production only after Peter's "deploy main", by the person doing that deploy.
- */
-export const migrateNeedsPeterToAsks = internalMutation({
-  args: { apply: v.optional(v.boolean()), limit: v.optional(v.number()) },
-  handler: async (ctx, args) =>
-    migrateNeedsPeterBatch(ctx, { apply: args.apply === true, limit: args.limit ?? ASK_MIGRATION_BATCH }),
 });
 
 /** Staff set a milestone task's kind, Design or Build, from the task modal. */
