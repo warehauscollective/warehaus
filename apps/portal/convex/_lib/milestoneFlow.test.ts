@@ -14,7 +14,7 @@ import { describe, it } from 'node:test';
 import { claimNext, completeTask, recordEvent, releaseStuckRuns, reportBuild, retryBlocked, writePlannedTasks } from '../agent';
 import { AGENT_DRIVER_LOCKED, setAgentDriver } from '../projects';
 import { PortalAuthError } from './identity';
-import { addTask, listForClientProject, reviewForApi, setStatus } from '../milestones';
+import { addTask, listForClientProject, reviewForApi, setStatus, startReviewPreview } from '../milestones';
 import { CHAT_CHANGES_NOTE } from './milestoneReview';
 import { createMilestone, updateMilestone } from '../portalApi';
 import { applyInbound } from '../sync/inbound';
@@ -702,6 +702,109 @@ describe('status change from the staff API and a merge', () => {
     assert.equal(back.status, 200, JSON.stringify(back.body));
     assert.equal(run.openNotes().length, 0);
     assertBounded(run.t);
+  });
+
+  const PREVIEW_START = 'milestones:startReviewPreview';
+  const previewStarts = (run: ReturnType<typeof seed>) => run.t.scheduled.filter((call) => call.name === PREVIEW_START);
+  async function withDispatchToken<T>(token: string | undefined, body: () => Promise<T>): Promise<T> {
+    const before = process.env.REVIEW_PREVIEW_GITHUB_TOKEN;
+    if (token === undefined) delete process.env.REVIEW_PREVIEW_GITHUB_TOKEN;
+    else process.env.REVIEW_PREVIEW_GITHUB_TOKEN = token;
+    try {
+      return await body();
+    } finally {
+      if (before === undefined) delete process.env.REVIEW_PREVIEW_GITHUB_TOKEN;
+      else process.env.REVIEW_PREVIEW_GITHUB_TOKEN = before;
+    }
+  }
+
+  it('entering Ready to Ship starts the Vercel preview once per iteration', async () => {
+    await withDispatchToken('test-token', async () => {
+      const run = seed('Building', [{ status: 'Done', isDone: true }]);
+      await run.t.db.patch(run.milestoneId, { prUrl: `https://github.com/${REPO}/pull/231` });
+      assert.equal((await update(run, 'k1', 'Ready to Ship')).status, 200);
+      assert.deepEqual(
+        previewStarts(run).map((call) => call.args),
+        [{ milestoneId: run.milestoneId, prNumber: 231 }],
+      );
+      assert.equal(run.milestone().previewDispatchIteration, 1);
+
+      // Out and back in the same iteration starts nothing more.
+      assert.equal((await update(run, 'k2', 'Awaiting Go')).status, 200);
+      assert.equal((await update(run, 'k3', 'Ready to Ship')).status, 200);
+      assert.equal(previewStarts(run).length, 1);
+
+      // A new iteration starts one more.
+      assert.equal((await update(run, 'k4', 'Awaiting Go')).status, 200);
+      await run.t.db.patch(run.milestoneId, { iteration: 2 });
+      assert.equal((await update(run, 'k5', 'Ready to Ship')).status, 200);
+      assert.equal(previewStarts(run).length, 2);
+      assert.equal(run.milestone().previewDispatchIteration, 2);
+      assertBounded(run.t);
+    });
+  });
+
+  it('starts no preview without a pull request or without the dispatch token, and can start later', async () => {
+    await withDispatchToken('test-token', async () => {
+      const run = seed('Building', [{ status: 'Done', isDone: true }]);
+      assert.equal((await update(run, 'k1', 'Ready to Ship')).status, 200);
+      assert.equal(previewStarts(run).length, 0);
+      assert.equal(run.milestone().previewDispatchIteration, undefined);
+    });
+    const run = seed('Building', [{ status: 'Done', isDone: true }]);
+    await run.t.db.patch(run.milestoneId, { prUrl: `https://github.com/${REPO}/pull/231` });
+    await withDispatchToken(undefined, async () => {
+      assert.equal((await update(run, 'k1', 'Ready to Ship')).status, 200);
+      assert.equal(previewStarts(run).length, 0);
+      assert.equal(run.milestone().previewDispatchIteration, undefined);
+      assert.equal((await update(run, 'k2', 'Awaiting Go')).status, 200);
+    });
+    await withDispatchToken('test-token', async () => {
+      assert.equal((await update(run, 'k3', 'Ready to Ship')).status, 200);
+      assert.equal(previewStarts(run).length, 1);
+    });
+  });
+
+  it('the preview start asks GitHub for the workflow on main, and a refusal marks the preview failed', async () => {
+    const run = seed('Ready to Ship', []);
+    const realFetch = globalThis.fetch;
+    const requests: Array<{ url: string; body: unknown; authorization: string | null }> = [];
+    let status = 204;
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      requests.push({
+        url: String(url),
+        body: JSON.parse(String(init?.body)),
+        authorization: new Headers(init?.headers).get('authorization'),
+      });
+      return new Response(null, { status });
+    }) as typeof fetch;
+    try {
+      await withDispatchToken('test-token', async () => {
+        const args = { milestoneId: run.milestoneId, prNumber: 231 };
+        const started = await run.t.call<{ ok: boolean }>(startReviewPreview, args);
+        assert.equal(started.ok, true);
+        assert.match(requests[0]?.url ?? '', /\/actions\/workflows\/portal-review-preview\.yml\/dispatches$/);
+        assert.deepEqual(requests[0]?.body, { ref: 'main', inputs: { pr_number: '231', milestone_id: run.milestoneId } });
+        assert.equal(requests[0]?.authorization, 'Bearer test-token');
+        assert.equal(run.t.runs.length, 0);
+
+        status = 422;
+        const refused = await run.t.call<{ ok: boolean; reason?: string }>(startReviewPreview, args);
+        assert.deepEqual(refused, { ok: false, reason: 'Preview did not start' });
+        assert.deepEqual(
+          run.t.runs.map((call) => [call.name, call.args]),
+          [['milestones:setReviewPreview', { milestoneId: run.milestoneId, state: 'failed', prNumber: 231 }]],
+        );
+      });
+      await withDispatchToken(undefined, async () => {
+        const before = requests.length;
+        const waiting = await run.t.call<{ ok: boolean }>(startReviewPreview, { milestoneId: run.milestoneId, prNumber: 231 });
+        assert.equal(waiting.ok, false);
+        assert.equal(requests.length, before);
+      });
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 
   it('a staff API Shipped with an open task is refused and writes nothing', async () => {

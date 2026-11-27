@@ -15,7 +15,7 @@ import {
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
-import type { MutationCtx, QueryCtx } from './_generated/server';
+import type { ActionCtx, MutationCtx, QueryCtx } from './_generated/server';
 import { httpAction, internalAction, internalMutation, internalQuery } from './_generated/server';
 import { internal } from './_generated/api';
 import { PortalAuthError } from './_lib/identity';
@@ -1843,6 +1843,7 @@ async function applyPreviewOutcome(
     previewBuild: undefined,
     previewBuildAttempt: undefined,
     previewBuildAt: undefined,
+    previewDispatchIteration: undefined,
     previewDelete: undefined,
     previewDeleteAttempt: undefined,
     previewDeleteAt: undefined,
@@ -1962,32 +1963,52 @@ export const dispatchReviewPreview = internalAction({
   handler: async (ctx, args) => {
     const cloud = assertReviewConvexUrl(process.env.CONVEX_CLOUD_URL);
     if (!cloud.ok) return { ok: false as const, reason: cloud.reason };
-    const token = process.env.REVIEW_PREVIEW_GITHUB_TOKEN?.trim();
-    if (!token) return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
-    const response = await fetch(
-      'https://api.github.com/repos/warehauscollective/warehaus/actions/workflows/portal-review-preview.yml/dispatches',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ref: 'main',
-          inputs: { pr_number: String(args.prNumber), milestone_id: args.milestoneId },
-        }),
-      },
-    );
-    if (response.status === 204) return { ok: true as const };
-    await ctx.runMutation(internal.milestones.setReviewPreview, {
-      milestoneId: args.milestoneId,
-      state: 'failed',
-      prNumber: args.prNumber,
-    });
-    return { ok: false as const, reason: 'Retry did not start' };
+    return await sendPreviewDispatch(ctx, args, 'Retry did not start');
   },
+});
+
+/** Ask GitHub to run portal-review-preview for one pull request. A refusal marks the preview failed. */
+async function sendPreviewDispatch(
+  ctx: ActionCtx,
+  args: { prNumber: number; milestoneId: Id<'milestones'> },
+  refused: string,
+) {
+  const token = process.env.REVIEW_PREVIEW_GITHUB_TOKEN?.trim();
+  if (!token) return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
+  const response = await fetch(
+    'https://api.github.com/repos/warehauscollective/warehaus/actions/workflows/portal-review-preview.yml/dispatches',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ref: 'main',
+        inputs: { pr_number: String(args.prNumber), milestone_id: args.milestoneId },
+      }),
+    },
+  );
+  if (response.status === 204) return { ok: true as const };
+  await ctx.runMutation(internal.milestones.setReviewPreview, {
+    milestoneId: args.milestoneId,
+    state: 'failed',
+    prNumber: args.prNumber,
+  });
+  return { ok: false as const, reason: refused };
+}
+
+/**
+ * The start scheduled on entering Ready to Ship (ADR-0009 decision 2). Unlike a
+ * retry it also runs on production, where real milestones live. It only asks
+ * GitHub to run the workflow: the workflow builds against shared dev
+ * graceful-mastiff-960 and never production Convex.
+ */
+export const startReviewPreview = internalAction({
+  args: { prNumber: v.number(), milestoneId: v.id('milestones') },
+  handler: async (ctx, args) => sendPreviewDispatch(ctx, args, 'Preview did not start'),
 });
 
 /**
