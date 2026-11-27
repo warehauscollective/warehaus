@@ -240,7 +240,7 @@ export function ProjectRoadmap({
     setDetailsPreview(params.get('details'));
     setTileStagePreview(params.get('tileStage'));
     setTileLinkPreview(params.get('tileLink'));
-    setTileApprove(params.get('tiles') === 'ready');
+    setTileApprove(params.get('tiles') === 'ready' || params.has('gate'));
     if (params.get('create') === 'milestone') setCreateOpen(true);
     const pane = params.get('pane') ?? params.get('tab');
     if (pane === 'details' || pane === 'milestones' || pane === 'resources' || pane === 'activity') setProjectTab(pane);
