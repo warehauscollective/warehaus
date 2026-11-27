@@ -237,7 +237,7 @@ function withLoopFixture(milestone: MilestoneRoadmapView, loop: string): Milesto
 
 function previewMilestone(
   patch: Pick<MilestoneRoadmapView, 'id' | 'name' | 'objective' | 'status' | 'approval'> &
-    Partial<Pick<MilestoneRoadmapView, 'decidedAt' | 'resources' | 'note' | 'approverName'>>,
+    Partial<Pick<MilestoneRoadmapView, 'decidedAt' | 'resources' | 'note' | 'approverName' | 'buildRun' | 'rows'>>,
 ): MilestoneRoadmapView {
   return {
     goals: [],
@@ -257,6 +257,7 @@ function previewMilestone(
 /**
  * Fixture-only list previews. `?chip=long` stretches the first chip.
  * `?tiles=states` adds an in-progress tile, a reviewed tile, an approved tile awaiting merge, and a tile whose status is Shipped.
+ * `?tiles=building` adds four Building tiles, one per Building indicator state: live, Queued, Blocked and Stalled.
  * An empty search leaves the list alone.
  */
 export function applyFixtureMilestonePreview(
@@ -309,6 +310,18 @@ export function applyFixtureMilestonePreview(
           { id: 'r-ds-2', title: 'Components', url: null },
         ],
       }),
+    ];
+  }
+  if (params.get('tiles') === 'building') {
+    const now = Date.now();
+    const building = (id: string, name: string, buildRun: NonNullable<MilestoneRoadmapView['buildRun']>) =>
+      previewMilestone({ id, name, objective: `${name} is Building.`, status: 'Building', approval: 'unreviewed', buildRun });
+    return [
+      building('m-preview-build-live', 'Live run', { running: true, aliveAt: now, blocked: false }),
+      building('m-preview-build-queued', 'Queued run', { running: false, blocked: false }),
+      building('m-preview-build-blocked', 'Blocked run', { running: false, blocked: true }),
+      building('m-preview-build-stalled', 'Stalled run', { running: true, aliveAt: now - 6 * 60_000, blocked: false }),
+      ...next,
     ];
   }
   if (params.get('tiles') !== 'states') return next;

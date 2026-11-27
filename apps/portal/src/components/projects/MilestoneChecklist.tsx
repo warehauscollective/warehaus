@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties, type FormEvent } from 'react';
+import { BuildingIndicator, useBuildRunState } from './BuildingIndicator';
 import type { Id } from '@convex/_generated/dataModel';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
 import {
@@ -168,6 +169,9 @@ export function MilestoneChecklist({
   const shipped = milestone.status === 'Shipped';
   const canChange = staff && !shipped && (fixtures || actions != null);
   const milestoneId = milestone.id as Id<'milestones'>;
+  // The task the runner is building now pulses in place of its state glyph (Figma Show building).
+  const buildState = useBuildRunState(milestone.status, milestone.buildRun, staff);
+  const buildingTaskId = buildState === 'live' || buildState === 'stalled' ? milestone.buildRun?.taskId ?? null : null;
 
   const run = async (action: () => Promise<unknown>) => {
     if (busy) return false;
@@ -415,7 +419,11 @@ export function MilestoneChecklist({
                 ) : (
                   <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
                     <div className="flex min-w-0 flex-1 items-center gap-3">
-                      <StateGlyph state={state} />
+                      {buildingTaskId && row.id === buildingTaskId && buildState ? (
+                        <BuildingIndicator state={buildState} size={14} />
+                      ) : (
+                        <StateGlyph state={state} />
+                      )}
                       {row.nested ? null : (
                         <span className="ds-mono" style={{ ...monoMuted, flex: '0 0 auto' }}>
                           {checklistNumber(index)}
