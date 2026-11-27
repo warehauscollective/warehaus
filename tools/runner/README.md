@@ -79,7 +79,7 @@ npm run runner -- start
 - `--paused` starts paused: it claims nothing until it reads `resume`.
 - `--parallel N` (headless only, 1 to 4, default 1) works up to N milestones at once, one run on each. Each claim sends `slots` and the run ids it holds (protocol 3); the Portal hands back a run the runner lost track of first, and nothing new once every slot is in use. A Cursor build whose agent is still going gives its slot back for a minute, then is followed again. **Each run is its own headless Claude session, so N runs use the Agent SDK credit N times as fast.**
 
-With nothing to do, the runner waits one minute, then longer, up to five minutes between checks. During a longer wait it calls `POST /agent/ping` every 75 seconds. The ping claims nothing: it only tells the Portal the runner is alive, so the runner status chip on the project page reads Ready (seen within the last 10 minutes). Each call sends the runner's protocol version, and `paused: true` while paused. A runner below the Portal's minimum shows "Runner out of date" and gets no work until it is updated. The CLI never updates its own code; under the Mac app, the app updates itself, and the runner with it, between runs.
+With nothing to do, the runner waits one minute, then longer, up to five minutes between checks. During a longer wait it calls `POST /agent/ping` every 75 seconds. The ping claims nothing: it only tells the Portal the runner is alive, so the runner status chip on the project page reads Ready (seen within the last 10 minutes). Each call sends the runner's protocol version, and `paused: true` while paused. While runs go it pings every 75 seconds too, and every claim and ping lists the runs it holds (`held`, protocol 4): each one gets a sign of life, so the milestone shows the Building indicator, and Stalled after 5 minutes without one. A runner below the Portal's minimum shows "Runner out of date" and gets no work until it is updated. The CLI never updates its own code; under the Mac app, the app updates itself, and the runner with it, between runs.
 
 ## Try it end to end
 
@@ -119,7 +119,7 @@ tail -f ~/Library/Logs/co.warehaus.runner.log                        # its log
 
 ## A sleeping Mac
 
-The runner holds `caffeinate -i` while a run is in progress, and only then, so the Mac does not idle-sleep in the middle of a task. A closed lid still stops it. The Portal handles that on its own: after 30 minutes with no call, the sweep releases the run and blocks the task or the build, and staff see Retry. A milestone that has been Building for 30 minutes with no runner online gets an Ask waiting on Peter, which says whether no runner is set up at all. The Ask closes when a runner is back.
+The runner holds `caffeinate -i` while a run is in progress, and only then, so the Mac does not idle-sleep in the middle of a task. A closed lid still stops it. The Portal handles that on its own: after 15 minutes with no sign of life for a run (30 minutes with no call from a runner older than protocol 4), the sweep blocks the task or the build, and staff see Retry. The sweep runs every 10 minutes, so that happens 15 to 25 minutes after the last sign of life. A milestone that has been Building for 30 minutes with no runner online gets an Ask waiting on Peter, which says whether no runner is set up at all. The Ask closes when a runner is back.
 
 ## Claude's usage limit
 
