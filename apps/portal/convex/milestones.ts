@@ -135,6 +135,7 @@ import {
   assertReviewConvexUrl,
   PREVIEW_ROUTE_LINK_ONLY,
   PREVIEW_ROUTE_WRONG_DEPLOYMENT,
+  previewDispatchStore,
   authorizeReviewPreview,
   isPreviewLinkWrite,
   previewIterationDecision,
@@ -1994,7 +1995,12 @@ async function sendPreviewDispatch(
       },
       body: JSON.stringify({
         ref: 'main',
-        inputs: { pr_number: String(args.prNumber), milestone_id: args.milestoneId },
+        // Shared dev names itself so the link comes back to its own milestone. Production is the workflow's default.
+        inputs: {
+          pr_number: String(args.prNumber),
+          milestone_id: args.milestoneId,
+          ...previewDispatchStore(process.env.CONVEX_CLOUD_URL),
+        },
       }),
     },
   );

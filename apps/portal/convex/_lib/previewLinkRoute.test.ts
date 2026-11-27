@@ -5,6 +5,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { reviewPreviewHttp, setReviewPreview } from '../milestones';
 import { memoryCtx, type MemoryCtx } from './memoryCtx.testkit';
@@ -12,8 +13,14 @@ import {
   PREVIEW_ROUTE_LINK_ONLY,
   PREVIEW_ROUTE_WRONG_DEPLOYMENT,
   isPreviewLinkWrite,
+  postReviewPreview,
+  previewDispatchStore,
   previewIterationDecision,
+  reviewDeploymentBody,
   reviewPreviewRouteScope,
+  reviewPreviewStore,
+  reviewPreviewStoreUrl,
+  VERCEL_PROJECT_ID,
 } from './reviewPreview';
 import { seedMilestoneWorld } from './seedRows.testkit';
 
@@ -214,5 +221,100 @@ describe('storing the preview link', () => {
     });
     assert.equal(result.ok, false);
     assert.equal((t.row(milestoneId) as Record<string, unknown>).previewUrl, undefined);
+  });
+});
+
+describe('where the workflow stores the link', () => {
+  const PRODUCTION_ROUTE = 'https://unique-turtle-383.convex.site/review-preview';
+  const SHARED_DEV_ROUTE = 'https://graceful-mastiff-960.convex.site/review-preview';
+
+  function recorder(answer: () => Response) {
+    const requests: Array<{ url: string; authorization: string | null; body: unknown }> = [];
+    const fetchImpl = (async (url: unknown, init?: RequestInit) => {
+      requests.push({
+        url: String(url),
+        authorization: new Headers(init?.headers).get('authorization'),
+        body: JSON.parse(String(init?.body)),
+      });
+      return answer();
+    }) as typeof fetch;
+    return { requests, fetchImpl };
+  }
+
+  it('stores on production unless shared dev started the run', () => {
+    assert.deepEqual(reviewPreviewStore(undefined), { ok: true, store: 'production' });
+    assert.deepEqual(reviewPreviewStore(''), { ok: true, store: 'production' });
+    assert.deepEqual(reviewPreviewStore(' production '), { ok: true, store: 'production' });
+    assert.deepEqual(reviewPreviewStore('dev'), { ok: true, store: 'dev' });
+    assert.equal(reviewPreviewStore('https://other-animal-1.convex.site').ok, false);
+    assert.equal(reviewPreviewStore('prod').ok, false);
+    assert.deepEqual(previewDispatchStore(SHARED_DEV), { store: 'dev' });
+    assert.deepEqual(previewDispatchStore(PRODUCTION), {});
+    assert.deepEqual(previewDispatchStore(undefined), {});
+  });
+
+  it('sends the link to the production route and every other write to shared dev', () => {
+    for (const state of ['building', 'ready', 'failed']) {
+      assert.equal(reviewPreviewStoreUrl('production', { state }), PRODUCTION_ROUTE);
+      assert.equal(reviewPreviewStoreUrl('dev', { state }), SHARED_DEV_ROUTE);
+    }
+    assert.equal(reviewPreviewStoreUrl('production', { op: 'close' }), SHARED_DEV_ROUTE);
+    assert.equal(reviewPreviewStoreUrl('production', { op: 'local', state: 'ready' }), SHARED_DEV_ROUTE);
+    assert.equal(reviewPreviewStoreUrl('production', { state: 'removed' }), SHARED_DEV_ROUTE);
+  });
+
+  it('posts the finished link, signed, to production', async () => {
+    const { requests, fetchImpl } = recorder(() => Response.json({ ok: true, changed: true, previousDeploymentId: 'dpl_old' }));
+    const payload = { milestoneId: 'm1', state: 'ready', url: URL_READY, sha: SHA, deploymentId: 'dpl_new', prNumber: 231 };
+    const stored = await postReviewPreview({ store: 'production', secret: SECRET, payload, fetchImpl });
+    assert.deepEqual(stored, { ok: true, changed: true, previousDeploymentId: 'dpl_old' });
+    assert.deepEqual(requests, [{ url: PRODUCTION_ROUTE, authorization: `Bearer ${SECRET}`, body: payload }]);
+  });
+
+  it('returns a refused write so the caller can delete the build, and throws on anything else', async () => {
+    const refused = recorder(() => Response.json({ ok: false, reason: 'Preview is for iteration 1; the milestone is on iteration 2' }, { status: 400 }));
+    assert.deepEqual(
+      await postReviewPreview({ store: 'production', secret: SECRET, payload: { state: 'ready' }, fetchImpl: refused.fetchImpl }),
+      { ok: false, reason: 'Preview is for iteration 1; the milestone is on iteration 2' },
+    );
+    for (const answer of [
+      () => new Response('Review preview is not configured', { status: 503 }),
+      () => new Response('Unauthorized', { status: 401 }),
+      () => new Response('Preview payload is incomplete', { status: 400 }),
+      () => new Response('not json', { status: 200 }),
+    ]) {
+      const { fetchImpl } = recorder(answer);
+      await assert.rejects(
+        postReviewPreview({ store: 'production', secret: SECRET, payload: { state: 'ready' }, fetchImpl }),
+        (error: Error) => /^Review preview store returned \d{3}: /.test(error.message) && !error.message.includes(SECRET),
+      );
+    }
+    const unsent = recorder(() => Response.json({ ok: true }));
+    await assert.rejects(
+      postReviewPreview({ store: 'production', secret: ' ', payload: { state: 'ready' }, fetchImpl: unsent.fetchImpl }),
+      /REVIEW_PREVIEW_SECRET is not set/,
+    );
+    assert.equal(unsent.requests.length, 0);
+  });
+
+  it('refuses a production Convex URL for the build, and the script names none', () => {
+    const body = (convexUrl: string) =>
+      reviewDeploymentBody({
+        projectId: VERCEL_PROJECT_ID,
+        org: 'warehauscollective',
+        repo: 'warehaus',
+        ref: 'milestone/x',
+        sha: SHA,
+        prNumber: 231,
+        milestoneId: 'm1',
+        convexUrl,
+        convexSite: 'https://graceful-mastiff-960.convex.site',
+      });
+    assert.deepEqual(body(PRODUCTION), { ok: false, reason: 'Convex URL points at unique-turtle-383' });
+    assert.equal(body(SHARED_DEV).ok, true);
+    const script = readFileSync(new URL('../../scripts/review-preview.ts', import.meta.url), 'utf8');
+    assert.equal(script.includes('unique-turtle-383'), false);
+    assert.equal(/PRODUCTION_(DEPLOYMENT|SITE_HOST|APP_HOST)/.test(script), false);
+    assert.equal(/process\.env\.(NEXT_PUBLIC_)?CONVEX_(CLOUD_|SITE_)?URL/.test(script), false);
   });
 });

@@ -13,6 +13,14 @@ on:
         description: Convex milestone id
         required: true
         type: string
+      store:
+        description: Deployment whose milestone gets the link. The build always uses shared dev.
+        required: false
+        default: production
+        type: choice
+        options:
+          - production
+          - dev
 
 permissions:
   contents: read
@@ -61,6 +69,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
           MILESTONE_ID: ${{ github.event.inputs.milestone_id }}
+          # Empty on the label path, which means production.
+          PREVIEW_STORE: ${{ github.event.inputs.store }}
           PR_BODY: ${{ github.event.pull_request.body }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}

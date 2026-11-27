@@ -788,6 +788,20 @@ describe('status change from the staff API and a merge', () => {
         assert.equal(requests[0]?.authorization, 'Bearer test-token');
         assert.equal(run.t.runs.length, 0);
 
+        // Shared dev names itself, so the workflow stores the link there and not on production.
+        const cloud = process.env.CONVEX_CLOUD_URL;
+        process.env.CONVEX_CLOUD_URL = 'https://graceful-mastiff-960.convex.cloud';
+        try {
+          await run.t.call<{ ok: boolean }>(startReviewPreview, args);
+        } finally {
+          if (cloud === undefined) delete process.env.CONVEX_CLOUD_URL;
+          else process.env.CONVEX_CLOUD_URL = cloud;
+        }
+        assert.deepEqual(requests[1]?.body, {
+          ref: 'main',
+          inputs: { pr_number: '231', milestone_id: run.milestoneId, store: 'dev' },
+        });
+
         status = 422;
         const refused = await run.t.call<{ ok: boolean; reason?: string }>(startReviewPreview, args);
         assert.deepEqual(refused, { ok: false, reason: 'Preview did not start' });
