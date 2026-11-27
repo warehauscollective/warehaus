@@ -4,6 +4,8 @@ Status: Accepted, Peter, 2026-11-21.
 
 Peter approved the first six decisions in the session "Milestone-to-agent workflow sync" on 2026-11-21, then answered the open questions there: "yes to all, go with your recommendations". He confirmed the resulting five points directly in the build session the same day, with "No merge, no deploy."
 
+Later decisions: Portal project decisions 0016 to 0026 (milestone lifecycle grilling, 2026-11-26) change parts of this record once their milestones ship. `AGENTS.md`, "Decided, not built yet", lists them.
+
 ## Context
 
 A milestone holds an ordered task list. The runner is a CLI on a staff Mac. It claims the next piece of milestone work from the Portal, opens the official `claude` CLI on the milestone branch, pushes the commit, and reports back. The Portal and Convex hold no model key and make no model call.
