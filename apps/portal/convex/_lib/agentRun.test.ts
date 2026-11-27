@@ -462,6 +462,11 @@ describe('who can read agent tables', () => {
         assert.equal(source.includes(table), false, `${file} reads ${table}`);
       }
     }
+    // The one exception: the Building indicator, read through a helper that cuts it down for a client.
+    const buildRead = read('./buildRunRead.ts');
+    assert.match(read('../milestones.ts'), /await milestoneBuildRun\(ctx, milestone, tasks, audience\)/);
+    assert.match(buildRead, /return buildRunFactsForAudience\(facts, audience\);/);
+    assert.doesNotMatch(buildRead, /blockedReason|agentEvents|agentRunners/);
     const agent = read('../agent.ts');
     assert.equal(agent.includes('clientQuery'), false);
     assert.equal(agent.includes('clientMutation'), false);
@@ -557,6 +562,61 @@ describe('queue rules', () => {
     assert.deepEqual(t.reads.all[0], { table: 'agentRuns', index: 'by_status', eq: ['status'], terminal: 'take', limit: 25 });
     const jobs = Object.values((crons as unknown as { crons: Record<string, { name: string }> }).crons);
     assert.equal(jobs.some((job) => job.name === 'agent:releaseStuckRuns'), true);
+  });
+
+  it('blocks a protocol 4 run after 15 minutes with no sign of life, even while its runner is seen', async () => {
+    const { runIsStuck, STALLED_RUN_REASON } = await import('./agentRun');
+    const { RUN_SILENT_BLOCK_AFTER_MS } = await import('./buildRun');
+    const now = Date.now();
+    // With a sign of life, only aliveAt counts: a seen runner does not keep a silent run open.
+    assert.equal(runIsStuck({ lastSeenAt: now, startedAt: now, now, aliveAt: now - RUN_SILENT_BLOCK_AFTER_MS }), true);
+    assert.equal(runIsStuck({ lastSeenAt: 0, startedAt: 0, now, aliveAt: now - RUN_SILENT_BLOCK_AFTER_MS + 1000 }), false);
+    const t = memoryCtx();
+    const { orgId, milestoneId, taskIds } = building(t, ['Silent task', 'Quiet task']);
+    t.seed('agentRunners', { runnerId: OTHER_RUNNER, windowStart: now, count: 0, lastSeenAt: now });
+    const silentTask = taskIds[0] as string;
+    await t.db.patch(silentTask, { status: 'In Progress', claimedBy: OTHER_RUNNER, claimedAt: 1 });
+    const silent = seedRun(t, { orgId, milestoneId }, { taskId: silentTask, startedAt: now - 20 * 60_000, aliveAt: now - 16 * 60_000 });
+    const fresh = seedRun(t, { orgId, milestoneId }, { taskId: taskIds[1], startedAt: now - 20 * 60_000, aliveAt: now - 60_000 });
+    const result = await t.call<{ released: number }>(releaseStuckRuns, {});
+    assert.equal(result.released, 1);
+    assert.equal(t.row(silent)?.status, 'cancelled');
+    assert.equal(t.row(fresh)?.status, 'running');
+    assert.equal(t.row(silentTask)?.status, 'Blocked');
+    assert.equal(t.row(silentTask)?.blockedReason ?? STALLED_RUN_REASON, STALLED_RUN_REASON);
+  });
+
+  it('a ping with held runs writes a sign of life once a minute, only for that runner\'s running runs', async () => {
+    const t = memoryCtx();
+    const tokenHash = await sha256Hex('runner-secret-'.padEnd(40, 'x'));
+    t.seed('agentRunners', { runnerId: RUNNER, windowStart: 0, count: 0, tokenHash, registeredAt: 1 });
+    const { orgId, milestoneId } = building(t, []);
+    const old = Date.now() - 2 * 60_000;
+    const mine = seedRun(t, { orgId, milestoneId }, { runnerId: RUNNER, aliveAt: old });
+    const theirs = seedRun(t, { orgId, milestoneId }, { runnerId: OTHER_RUNNER, aliveAt: old });
+    const ended = seedRun(t, { orgId, milestoneId }, { runnerId: RUNNER, status: 'succeeded', aliveAt: old });
+    const alive = [mine, theirs, ended, 'not-an-id'];
+    assert.deepEqual(await t.call(touchRunner, { runnerId: RUNNER, tokenHash, alive }), { ok: true, registered: true });
+    const stamped = t.row(mine)?.aliveAt as number;
+    assert.ok(stamped > old);
+    assert.equal(t.row(theirs)?.aliveAt, old);
+    assert.equal(t.row(ended)?.aliveAt, old);
+    // A second ping inside the minute writes nothing.
+    await t.call(touchRunner, { runnerId: RUNNER, tokenHash, alive });
+    assert.equal(t.row(mine)?.aliveAt, stamped);
+  });
+
+  it('a protocol 4 claim starts the run with a sign of life; an older claim does not', async () => {
+    const t = memoryCtx();
+    building(t, ['First']);
+    const served = await claim(t, RUNNER, { signsOfLife: true });
+    assert.equal(served.kind, 'task');
+    assert.equal(typeof t.row(served.runId)?.aliveAt, 'number');
+    const older = memoryCtx();
+    building(older, ['First']);
+    const plain = await claim(older);
+    assert.equal(plain.kind, 'task');
+    assert.equal(older.row(plain.runId)?.aliveAt, undefined);
   });
 
   it('blocks a Cursor build after 2 hours with an Ask, counting from the first launch', async () => {

@@ -431,6 +431,12 @@ export default defineSchema({
      * grace window, so Retry cannot start a second run over it.
      */
     settledAt: v.optional(v.number()),
+    /**
+     * The run's last sign of life (protocol 4): the runner lists the runs it
+     * holds on every claim and ping. Written at most once a minute. Absent on
+     * a run from an older runner, which never shows Stalled.
+     */
+    aliveAt: v.optional(v.number()),
   })
     .index('by_milestone', ['milestoneId', 'startedAt'])
     .index('by_task', ['taskId'])

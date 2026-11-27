@@ -94,3 +94,11 @@ Peter accepted these in the architecture review on 2026-11-24. They replace the 
 - **Reopening from Shipped is not a hand-off.** Restore, or an undo that lands on Ready to Ship, writes no approval note.
 - **Leaving Ready to Ship closes the open approval note**, whatever moved it: a review asking for changes, a staff move back to Building, or Parked. Approve keeps Ready to Ship and still closes the note.
 - **Every status change goes through one module**, `convex/_lib/milestoneLifecycle.ts`. It decides the Shipped gate itself from the milestone task set. Mark complete and undo use the same gate in its "no open tasks" form, which allows an empty milestone. No caller tells it the tasks are ready.
+
+## Amendment, 2026-11-26: the Building indicator and Stalled
+
+Portal decisions 0011 to 0014. These replace decision 6's first bullet where they differ.
+
+- A Building milestone shows the Building indicator: it pulses while a run goes, and otherwise reads Building · Queued (no run, nothing blocked) or Building · Blocked (a task is Blocked). Staff also see Building · Stalled: a run with no sign of life for 5 minutes. Clients see only the pulse or plain Building.
+- A run from a protocol 4 runner is blocked by the stuck sweep after 15 minutes with no sign of life, not 30, and stays Blocked with its reason for staff to retry. An older runner's run keeps the 30-minute rule. ADR-0005's 2026-11-26 signs-of-life amendment has the protocol.
+- The roadmap view reads the running run through one helper (`convex/_lib/buildRunRead.ts`): one indexed read, only while Building, cut down for a client before it leaves the server.

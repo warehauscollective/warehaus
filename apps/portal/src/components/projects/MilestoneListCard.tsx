@@ -12,6 +12,7 @@ import { PortalModal } from '@/components/ui/PortalModal';
 import { OutlineButton } from '@/components/ui/primitives';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { StatusMenu } from './milestoneDetailsEdit';
+import { useBuildRunState } from './BuildingIndicator';
 import { TileStatusControl, useMilestoneStatusMoves } from './MilestoneStatusControl';
 import { APPROVE_CONFIRM_COPY, APPROVE_CONFIRM_TITLE, RECORDING_APPROVAL, SAVING_APPROVAL_COPY } from './MilestoneReview';
 import {
@@ -322,6 +323,7 @@ export function MilestoneListCard({
     onSet: (next, expected) => onSetStatus?.(next, expected),
   });
   const stage = milestoneTileStatus({ status: moves.shown });
+  const buildState = useBuildRunState(moves.shown, milestone.buildRun, staff);
   const subtasks = boardTaskCounts(milestone).nested;
   const awaitingMerge = staff && milestone.approval === 'approved' && milestone.status !== 'Shipped';
   const dateLine = milestoneTileHeadline({
@@ -399,9 +401,10 @@ export function MilestoneListCard({
       }}
       buttonRef={chipRef}
       bare={canDeploy || canApproveDesign || designApproved}
+      buildState={buildState}
     />
   ) : (
-    <StatusChip label={stage.label} glyph={stage.glyph} />
+    <StatusChip label={stage.label} glyph={stage.glyph} live={buildState === 'live'} />
   );
   const approveButton = canDeploy ? (
     <button
@@ -554,7 +557,7 @@ export function MilestoneListCard({
           ) : stageTrigger}
           {staff && stageMenuOpen && !phoneSheet ? (
             <TileStagePopover anchorRef={menuAnchorRef}>
-              <StatusMenu current={stage.label} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={closeStageMenu} />
+              <StatusMenu current={stage.label} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={closeStageMenu} buildState={buildState} />
             </TileStagePopover>
           ) : null}
         </div>
@@ -751,7 +754,7 @@ export function MilestoneListCard({
           showFooter={false}
           cover={cover}
         >
-          <StatusMenu current={stage.label} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={closeStageMenu} sheet />
+          <StatusMenu current={stage.label} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={closeStageMenu} buildState={buildState} sheet />
         </PortalModal>
       ) : null}
     </article>

@@ -72,6 +72,18 @@ _Avoid_: runner token, runner allowlist
 A read-only run that reads a milestone and its repository and drafts 3 to 10 tasks for staff to review. It never changes code and always uses Claude Code.
 _Avoid_: planner job, auto-plan
 
+**Building indicator**:
+The mark beside a Building milestone's status. It pulses while a run is going; otherwise the status reads Building · Queued, Building · Blocked or, for staff, Building · Stalled. Clients see only the pulse.
+_Avoid_: spinner, progress light
+
+**Sign of life**:
+The runner telling the Portal a run it holds is still going, sent with its claims and pings (protocol 4). The Portal keeps the time of the last one on the run, written at most once a minute.
+_Avoid_: heartbeat (that is the runner itself being online), keepalive
+
+**Stalled**:
+A run with no sign of life for 5 minutes. The milestone shows Building · Stalled to staff; after 15 minutes the stuck sweep blocks the run.
+_Avoid_: hung, frozen, stuck (stuck is the older 30-minute quiet-runner rule)
+
 **Build agent**:
 The tool a project builds its milestones with: Claude Code or a Cursor cloud agent. Staff choose it per project; planning does not use it.
 _Avoid_: driver, agent choice, tool

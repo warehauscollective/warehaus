@@ -139,6 +139,7 @@ import {
 import { adminMutation, adminQuery, clientMutation, clientQuery } from './_lib/wrappers';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 import { planningForNewMilestone } from './_lib/agentRun';
+import { milestoneBuildRun } from './_lib/buildRunRead';
 
 const statusArg = v.union(
   v.literal('Idea'),
@@ -390,6 +391,7 @@ async function toRoadmap(
     audience === 'staff' && milestone.approverContactId ? await ctx.db.get(milestone.approverContactId) : null;
   const updatedAt =
     audience === 'staff' && showsUpdatedStamp(milestone.status) ? await lastChangeFor(ctx, milestone, tasks) : null;
+  const buildRun = await milestoneBuildRun(ctx, milestone, tasks, audience);
   const view: MilestoneRoadmapView = {
     id: milestone._id,
     name: milestone.name,
@@ -415,6 +417,7 @@ async function toRoadmap(
     ...(audience === 'staff' && milestone.branch ? { branch: milestone.branch } : {}),
     ...(audience === 'staff' && milestone.prUrl ? { prUrl: milestone.prUrl } : {}),
     ...(updatedAt != null ? { updatedAt } : {}),
+    ...(buildRun ? { buildRun } : {}),
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
     openCount: roadmap.openCount,
     doneCount: roadmap.doneCount,

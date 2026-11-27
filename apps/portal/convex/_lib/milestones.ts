@@ -4,6 +4,7 @@
  * Approval does not close, delete, or rewrite tasks.
  */
 
+import type { BuildRunFacts } from './buildRun';
 import { clientMaySeeProject } from '@warehaus/portal-sync';
 import {
   DEFAULT_MILESTONE_STATUS,
@@ -616,6 +617,11 @@ export type MilestoneRoadmapView = {
   prUrl?: string;
   /** Staff only, and only while Planning or Building. When the milestone last changed. */
   updatedAt?: number;
+  /**
+   * Only while Building: whether a run is going and its last sign of life,
+   * for the Building indicator. Clients get no `blocked`.
+   */
+  buildRun?: BuildRunFacts;
 };
 
 export type MilestoneReviewHistoryItem = {

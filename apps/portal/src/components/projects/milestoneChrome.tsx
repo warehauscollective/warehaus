@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { BuildingIndicator } from './BuildingIndicator';
 import { scrollActiveIntoView, sectionEdgeFades, sectionEdgeMask, type EdgeFade } from '@/components/layout/sectionEdgeFade';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
@@ -56,11 +57,21 @@ export function FieldValue({ children }: { children: ReactNode }) {
  * Plain status pill. Clients see this on a milestone tile: no chevron, no
  * menu, no play. Staff get `TileStatusControl` instead.
  */
-export function StatusChip({ label, glyph = '/icons/task-stage.svg' }: { label: string; glyph?: string }) {
+export function StatusChip({
+  label,
+  glyph = '/icons/task-stage.svg',
+  live = false,
+}: {
+  label: string;
+  glyph?: string;
+  /** A Building milestone with a run going. Clients see only this, never Queued or Blocked. */
+  live?: boolean;
+}) {
   return (
     <span
       className="ds-mono inline-flex shrink-0 items-center self-start whitespace-nowrap"
       data-testid="milestone-status-chip"
+      data-build-state={live ? 'live' : undefined}
       style={{
         boxSizing: 'border-box',
         width: 'auto',
@@ -76,7 +87,7 @@ export function StatusChip({ label, glyph = '/icons/task-stage.svg' }: { label: 
         background: 'transparent',
       }}
     >
-      <TaskGlyph src={glyph} size={12} />
+      {live ? <BuildingIndicator state="live" /> : <TaskGlyph src={glyph} size={12} />}
       {label}
     </span>
   );
