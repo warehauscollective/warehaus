@@ -173,6 +173,7 @@ export function ProjectRoadmap({
   const isPeter = isPeterEmail(auth.authUser?.email);
   const approveMilestone = useMutation(api.milestones.approve);
   const approveDesign = useMutation(api.milestones.approveDesign);
+  const requestDesignChanges = useMutation(api.milestones.requestDesignChanges);
   const setMilestoneStatus = useMutation(api.milestones.setStatus);
   const advanceMilestone = useMutation(api.milestones.advance);
   const setTileLink = useMutation(api.milestones.setTileLink);
@@ -416,6 +417,16 @@ export function ProjectRoadmap({
           return;
         }
         await approveDesign({ hostSlug, milestoneId: milestone.id as Id<'milestones'> });
+      }}
+      onRequestDesignChanges={async ({ notes, taskIds, newTasks }) => {
+        if (fixtures) return;
+        await requestDesignChanges({
+          hostSlug,
+          milestoneId: milestone.id as Id<'milestones'>,
+          notes,
+          taskIds: taskIds as Id<'tasks'>[],
+          newTasks,
+        });
       }}
       onSetLink={async (field, url) => {
         if (fixtures) {

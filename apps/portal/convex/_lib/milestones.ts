@@ -13,6 +13,7 @@ import {
   isMilestoneStatus,
   type MilestoneStatus,
 } from './milestoneStatus';
+import type { BuildingPhase, TaskKind } from './designGate';
 import type { MilestoneCreatedVia, TaskOrigin } from './milestoneTasks';
 import { classifyMilestoneTasks, roadmapCounts, taskSetGroups } from './milestoneTaskSet';
 
@@ -300,6 +301,7 @@ export type RoadmapTaskInput = {
   source?: string | null;
   origin?: TaskOrigin | null;
   round?: number | null;
+  kind?: TaskKind | null;
   portalOwned?: boolean;
   detail?: string | null;
   runner?: string | null;
@@ -320,6 +322,8 @@ export type RoadmapChild = {
   origin?: TaskOrigin;
   /** Staff only. Review iteration that asked for the task. */
   round?: number;
+  /** Staff only, and only on a design task. A task with no kind is build. */
+  kind?: 'design';
   /** Staff only. True when the portal owns the task, so it can be edited and removed here. */
   portalOwned?: boolean;
   /** Staff only, and only on a task the portal owns. */
@@ -367,6 +371,7 @@ function roadmapTask(
     ...(audience === 'staff' && task.source ? { source: task.source } : {}),
     ...(audience === 'staff' && task.origin ? { origin: task.origin } : {}),
     ...(audience === 'staff' && task.round != null ? { round: task.round } : {}),
+    ...(audience === 'staff' && task.kind === 'design' ? { kind: 'design' as const } : {}),
     ...(audience === 'staff' && task.portalOwned ? { portalOwned: true } : {}),
     ...(audience === 'staff' && task.portalOwned && task.detail ? { detail: task.detail } : {}),
     ...(audience === 'staff' && task.runner ? { runner: task.runner } : {}),
@@ -606,6 +611,8 @@ export type MilestoneRoadmapView = {
   figmaUrl?: string | null;
   /** Staff only. When Peter approved the design. Absent for clients and until he approves. */
   designApprovedAt?: number;
+  /** Staff only. The design gate: whether build waits, and the Building phase. */
+  designGate?: { visual: boolean; buildLocked: boolean; phase: BuildingPhase };
   /** Staff only. Where the milestone was created. Absent for clients, including the key. */
   createdVia?: MilestoneCreatedVia;
   /** Staff only. A planning job waiting for, held by, or blocked on a runner. */

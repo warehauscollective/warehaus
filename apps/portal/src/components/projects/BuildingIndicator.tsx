@@ -8,6 +8,7 @@ import {
   type BuildRunFacts,
   type BuildRunState,
 } from '@convex/_lib/buildRun';
+import { BUILDING_PHASE_SUFFIX, type BuildingPhase } from '@convex/_lib/designGate';
 
 /** How often a tile rechecks the clock, so a quiet run turns Stalled without a new query result. */
 export const BUILD_CLOCK_TICK_MS = 30_000;
@@ -82,3 +83,19 @@ export function BuildRunSuffix({ state }: { state: BuildRunState | null }) {
     </span>
   );
 }
+
+/**
+ * " · Designs" or " · Waiting on design approval" after Building, from the
+ * design gate. Staff only. Plain Build shows nothing. Unlike the run suffix it
+ * stays at 390, where the label truncates.
+ */
+export function BuildingPhaseSuffix({ status, phase }: { status: string; phase?: BuildingPhase | null }) {
+  const suffix = status === 'Building' && phase ? BUILDING_PHASE_SUFFIX[phase] : null;
+  if (!suffix) return null;
+  return (
+    <span data-testid="building-phase" data-phase={phase ?? undefined} style={{ color: 'var(--muted)' }}>
+      {` · ${suffix}`}
+    </span>
+  );
+}
+

@@ -125,7 +125,7 @@ import {
   ONLY_PETER_DESIGNS,
   requestDesignChangesDecision,
 } from './_lib/designApproval';
-import { designGate, TASK_KIND_NEEDS_MILESTONE } from './_lib/designGate';
+import { designGate, taskKind, TASK_KIND_NEEDS_MILESTONE } from './_lib/designGate';
 import { stageForNewMilestoneTask } from './_lib/milestoneTasks';
 import { setTaskKind as writeTaskKind, syncDesignAsk } from './_lib/designGateStore';
 import {
@@ -309,6 +309,7 @@ async function roadmapTasks(
       source: task.source ?? null,
       origin: taskOrigin({ origin: task.origin, source: task.source }),
       round: task.round ?? null,
+      kind: taskKind(task),
       portalOwned: isPortalOwnedTask({ source: task.source, notionPageId: task.notionPageId }),
       detail: task.description ?? null,
       runner: task.claimedBy ?? null,
@@ -381,6 +382,15 @@ async function lastChangeFor(
   ]);
 }
 
+/** The design gate as the tile and the task rows show it. Staff only. */
+function roadmapDesignGate(inputs: readonly RoadmapTaskInput[], milestone: Doc<'milestones'>) {
+  const gate = designGate(
+    inputs.filter((task) => task.milestoneId === milestone._id),
+    milestone.designApprovedAt,
+  );
+  return { visual: gate.visual, buildLocked: gate.buildLocked, phase: gate.phase };
+}
+
 async function toRoadmap(
   ctx: QueryCtx,
   milestone: Doc<'milestones'>,
@@ -416,6 +426,7 @@ async function toRoadmap(
     ...(audience === 'staff' && milestone.localPreviewUrl ? { localPreviewUrl: milestone.localPreviewUrl } : {}),
     ...(audience === 'staff' && milestone.figmaUrl ? { figmaUrl: milestone.figmaUrl } : {}),
     ...(audience === 'staff' && milestone.designApprovedAt ? { designApprovedAt: milestone.designApprovedAt } : {}),
+    ...(audience === 'staff' ? { designGate: roadmapDesignGate(inputs, milestone) } : {}),
     creatorName: await creatorNameFor(ctx, milestone),
     ...(audience === 'staff' && milestone.createdVia ? { createdVia: milestone.createdVia } : {}),
     ...(audience === 'staff' && milestone.planning ? { planning: milestone.planning } : {}),

@@ -6,7 +6,8 @@ import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { PortalToast } from '@/components/ui/PortalToast';
 import type { BuildRunState } from '@convex/_lib/buildRun';
-import { BuildingIndicator, BuildRunSuffix } from './BuildingIndicator';
+import { BuildingIndicator, BuildingPhaseSuffix, BuildRunSuffix } from './BuildingIndicator';
+import type { BuildingPhase } from '@convex/_lib/designGate';
 
 /** Shown on the control after a failed save. The status has already rolled back. */
 export const STATUS_SAVE_ERROR = 'Couldn’t save. Nothing changed.';
@@ -198,6 +199,7 @@ export function TileStatusControl({
   buttonRef,
   bare = false,
   buildState = null,
+  phase = null,
 }: {
   status: MilestoneStatus;
   saving?: boolean;
@@ -210,6 +212,8 @@ export function TileStatusControl({
   bare?: boolean;
   /** The Building indicator. Null unless the milestone is Building. */
   buildState?: BuildRunState | null;
+  /** The design gate's Building phase. Staff only. */
+  phase?: BuildingPhase | null;
 }) {
   const indicator = buildState && !saving ? buildState : null;
   return (
@@ -244,6 +248,7 @@ export function TileStatusControl({
         {indicator ? <BuildingIndicator state={indicator} /> : <TaskGlyph src={milestoneStatusGlyph(status)} size={12} />}
         <span style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {saving ? `${status}…` : status}
+          {saving ? null : <BuildingPhaseSuffix status={status} phase={phase} />}
           <BuildRunSuffix state={indicator} />
         </span>
         <span className="text-[var(--muted)]" aria-hidden style={{ display: 'inline-flex' }}>

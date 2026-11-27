@@ -15,7 +15,8 @@ import { PortalModal, type PortalModalHeader } from '@/components/ui/PortalModal
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { FieldLabel, Panel, fieldStyle } from './milestoneChrome';
 import { StatusPlayButton, useMilestoneStatusMoves } from './MilestoneStatusControl';
-import { BuildingIndicator, BuildRunSuffix, useBuildRunState } from './BuildingIndicator';
+import { BuildingIndicator, BuildingPhaseSuffix, BuildRunSuffix, useBuildRunState } from './BuildingIndicator';
+import type { BuildingPhase } from '@convex/_lib/designGate';
 import type { BuildRunState } from '@convex/_lib/buildRun';
 
 const APPROVAL_LABEL = {
@@ -456,7 +457,14 @@ export function useMilestoneDetailEdits({
               valueTestId="milestone-status"
               label={moves.saving ? `${statusNow}…` : statusNow}
               leading={buildState && !moves.saving ? <BuildingIndicator state={buildState} /> : null}
-              trailing={moves.saving ? null : <BuildRunSuffix state={buildState} />}
+              trailing={
+                moves.saving ? null : (
+                  <>
+                    <BuildingPhaseSuffix status={statusNow} phase={milestone.designGate?.phase} />
+                    <BuildRunSuffix state={buildState} />
+                  </>
+                )
+              }
               tone={moves.saving ? 'idle' : tone.status}
               open={shown?.kind === 'status'}
               onClick={() => {
@@ -489,7 +497,7 @@ export function useMilestoneDetailEdits({
           ) : null}
           {staff && shown?.kind === 'status' && !phone ? (
             <Popover onClose={() => closeOverlay(true)}>
-              <StatusMenu current={statusNow} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={() => closeOverlay(true)} buildState={buildState} />
+              <StatusMenu current={statusNow} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={() => closeOverlay(true)} buildState={buildState} phase={milestone.designGate?.phase} />
             </Popover>
           ) : null}
         </DetailRow>
@@ -696,7 +704,7 @@ export function useMilestoneDetailEdits({
       onClose={() => closeOverlay(true)}
     >
       {staff && shown.kind === 'status' ? (
-        <StatusMenu current={statusNow} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={() => closeOverlay(true)} buildState={buildState} sheet />
+        <StatusMenu current={statusNow} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={() => closeOverlay(true)} buildState={buildState} phase={milestone.designGate?.phase} sheet />
       ) : null}
       {shown.kind === 'owner' ? (
         <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} currentName={milestone.ownerName} onPick={pickOwner} onClose={() => closeOverlay(true)} sheet />
@@ -1185,11 +1193,14 @@ export function StatusMenu({
   canClose = false,
   openCount = 0,
   buildState = null,
+  phase = null,
 }: {
   current: string;
   onPick: (status: MilestoneStatus) => void;
   /** The milestone's Building indicator. The current Building option pulses only while a run is live. */
   buildState?: BuildRunState | null;
+  /** The design gate's Building phase, shown after the current Building option. */
+  phase?: BuildingPhase | null;
   onClose: () => void;
   sheet?: boolean;
   canClose?: boolean;
@@ -1242,7 +1253,10 @@ export function StatusMenu({
             }}
           >
             {selected && status === 'Building' && buildState === 'live' ? <BuildingIndicator state="live" /> : null}
-            <span className="whitespace-nowrap">{status}</span>
+            <span className="whitespace-nowrap">
+              {status}
+              {selected ? <BuildingPhaseSuffix status={status} phase={phase} /> : null}
+            </span>
             {lock === 'shipped' && openCount > 0 ? <Tag>{shippedOpenTag(openCount)}</Tag> : null}
             {lock ? <TaskGlyph src="/icons/task-lock.svg" size={14} /> : null}
             {selected && !lock ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}

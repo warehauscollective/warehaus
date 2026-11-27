@@ -60,6 +60,8 @@ export type PortalTask = {
   stage?: string | null;
   /** Staff only. Used to load the milestone review while this task is open. */
   milestoneId?: string | null;
+  /** Staff only. Design or Build. Missing reads as Build. */
+  kind?: 'design' | 'build' | null;
   lastEditedTime?: string | null;
   parentTaskId?: string | null;
   assigneeName?: string | null;

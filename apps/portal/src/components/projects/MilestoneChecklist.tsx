@@ -14,6 +14,7 @@ import {
   type ChecklistState,
 } from '@convex/_lib/milestoneTasks';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
+import { LOCKED_LINE } from '@convex/_lib/designGate';
 import { taskCloseoutState } from '@convex/_lib/closeout';
 import { ArchivedChip, TaskCloseout } from '@/components/closeout/CloseoutControls';
 import type { TaskCloseoutActions } from '@/components/closeout/closeoutActions';
@@ -383,6 +384,9 @@ export function MilestoneChecklist({
             const movable = canChange && !row.nested && isToDoTask(row);
             const isEditing = editing?.id === row.id;
             const rowCloseout = closeoutFor(row);
+            const isDesign = staff && row.kind === 'design';
+            const locked =
+              staff && milestone.designGate?.buildLocked === true && !row.nested && !isDesign && state !== 'done' && row.stage !== 'Parked';
             return (
               <li
                 key={row.id}
@@ -466,6 +470,27 @@ export function MilestoneChecklist({
                           }}
                         >
                           {badge}
+                        </span>
+                      ) : null}
+                      {isDesign ? (
+                        <span
+                          className="ds-mono"
+                          data-testid="milestone-checklist-kind"
+                          style={{
+                            ...monoMuted,
+                            color: 'var(--fg)',
+                            border: '1px solid var(--border-2)',
+                            borderRadius: 999,
+                            padding: '2px 8px',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          Design
+                        </span>
+                      ) : null}
+                      {locked ? (
+                        <span className="ds-mono" data-testid="milestone-checklist-locked" style={{ ...monoMuted, whiteSpace: 'nowrap' }}>
+                          {LOCKED_LINE}
                         </span>
                       ) : null}
                       <span
