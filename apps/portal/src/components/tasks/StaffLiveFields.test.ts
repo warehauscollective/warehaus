@@ -58,11 +58,9 @@ describe('staff live task fields', () => {
     assert.equal(html.includes('Published'), false);
   });
 
-  it('is mounted only for staff on the task detail', () => {
+  it('is not on the task detail (Peter removed Estimate, Priority, Source, Publish and Done, 2026-11-26)', () => {
     const source = readFileSync(new URL('./TaskDetailModal.tsx', import.meta.url), 'utf8');
-    assert.match(source, /\{staff \? \(\s*<StaffLiveFields/);
-    assert.equal(source.match(/<StaffLiveFields/g)?.length, 1);
-    assert.match(source, /api\.tasks\.updateLiveFields/);
-    assert.equal(source.includes('api.tasks.updateEstimate'), false);
+    assert.equal(source.includes('<StaffLiveFields'), false);
+    assert.equal(source.includes('api.tasks.updateLiveFields'), false);
   });
 });

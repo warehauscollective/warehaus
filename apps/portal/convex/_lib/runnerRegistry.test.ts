@@ -5,7 +5,7 @@ import { RUNNER_PAIR_PATHS, RUNNER_PROTOCOL_HEADER, RUNNER_PROTOCOL_MIN, RUNNER_
 import { claimNext, releaseStuckRuns, runnerHealth, touchRunner } from '../agent';
 import { agentPairHttp } from '../agentHttp';
 import * as runnersModule from '../runners';
-import { clearQueuedPlanning, confirmPairing, findPairing, pairingStatus, revokeRunner, startPairing } from '../runners';
+import { clearQueuedPlanning, confirmPairing, findPairing, pairingStatus, revokeRunner, startPairing, unpairRunner } from '../runners';
 import { PortalAuthError } from './identity';
 import { memoryCtx, type MemoryCtx, type RunCall } from './memoryCtx.testkit';
 import {
@@ -86,14 +86,14 @@ describe('pairing codes', () => {
 });
 
 describe('runner access', () => {
-  it('lets in a registered runner by the hash of its secret, or the fallback, and nothing else', async () => {
+  it('lets in a registered runner by the hash of its secret, and nothing else', async () => {
     const tokenHash = await sha256Hex(SECRET);
     const row = { tokenHash, registeredAt: 1 };
-    assert.equal(runnerAccess({ row, tokenHash, envAuthorized: false }), 'registered');
-    assert.equal(runnerAccess({ row, tokenHash: await sha256Hex('wrong'), envAuthorized: false }), null);
-    assert.equal(runnerAccess({ row: { tokenHash, registeredAt: null }, tokenHash, envAuthorized: false }), null);
-    assert.equal(runnerAccess({ row: null, tokenHash, envAuthorized: true }), 'env');
-    assert.equal(runnerAccess({ row: null, tokenHash: null, envAuthorized: false }), null);
+    assert.equal(runnerAccess({ row, tokenHash }), 'registered');
+    assert.equal(runnerAccess({ row, tokenHash: await sha256Hex('wrong') }), null);
+    assert.equal(runnerAccess({ row: { tokenHash, registeredAt: null }, tokenHash }), null);
+    assert.equal(runnerAccess({ row: null, tokenHash }), null);
+    assert.equal(runnerAccess({ row: null, tokenHash: null }), null);
   });
 
   it('compares the hash in constant time', () => {
@@ -215,6 +215,33 @@ describe('revoking a runner', () => {
   });
 });
 
+describe('a runner removing itself (Remove this runner in the Mac app)', () => {
+  it('revokes its own registration and puts its task back in the queue', async () => {
+    const t = memoryCtx();
+    const { code } = (await startOne(t)).body as { code: string };
+    await t.call(confirmPairing, { code, runnerId: 'peter-mbp' }, { as: 'staff' });
+    const world = seedMilestoneWorld(t, { status: 'Building', branch: 'milestone/launch' }, { agentRepo: REPO });
+    const taskId = world.task({ name: 'First', source: 'portal-milestone', milestoneOrder: 0 });
+    const claimed = await t.call<{ runId: string }>(claimNext, { runnerId: 'peter-mbp', mode: 'headless', repos: [], anyRepo: true });
+
+    const removed = await t.call(unpairRunner, { runnerId: 'peter-mbp' });
+    assert.deepEqual(removed, { ok: true, released: 1 });
+    assert.equal(t.row(claimed.runId)?.status, 'cancelled');
+    assert.equal(t.row(taskId)?.status, 'To Do');
+    const after = await t.call<{ ok: boolean; status?: number }>(touchRunner, { runnerId: 'peter-mbp', tokenHash: await sha256Hex(SECRET) });
+    assert.equal(after.status, 401);
+    // A second removal finds nothing to revoke.
+    assert.equal((await t.call<{ ok: boolean }>(unpairRunner, { runnerId: 'peter-mbp' })).ok, false);
+  });
+
+  it('is reached only by a registered runner, after its secret is checked', () => {
+    const http = readFileSync(new URL('../agentHttp.ts', import.meta.url), 'utf8');
+    const unpair = http.indexOf("path === '/agent/unpair'");
+    assert.equal(http.indexOf('internal.agent.touchRunner') < unpair, true);
+    assert.match(http.slice(unpair, unpair + 400), /if \(!alive\.registered\) return json\(\{ error: RUNNER_UNAUTHORIZED \}, 401\)/);
+  });
+});
+
 describe('runner health with registrations', () => {
   it('lists registered runners for any project with a repository, with their protocol version', async () => {
     const t = memoryCtx();
@@ -258,7 +285,7 @@ describe('who can pair and revoke', () => {
 describe('no runner alerts', () => {
   type Sweep = { noRunnerOpened: number; noRunnerClosed: number };
   const openNotes = (t: MemoryCtx, milestoneId: string) =>
-    t.rows('milestoneNotes').filter((note) => note.milestoneId === milestoneId && note.needsPeter === 'open');
+    t.rows('milestoneNotes').filter((note) => note.milestoneId === milestoneId && note.open === true);
 
   it('picks the note from whether any runner is set up, and waits 30 minutes', () => {
     const base = { online: false, registeredCount: 0, hasRepo: true, buildingSince: 0, now: NO_RUNNER_AFTER_MS };

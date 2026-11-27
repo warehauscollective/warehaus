@@ -12,6 +12,7 @@ import { TaskBoard, type BoardAsk, type BoardCard, type BoardReorder, type Board
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import type { PortalTask } from '@/lib/data/view-models';
 import { ArchivedTaskRow, type ArchivedTask } from './ArchivedView';
+import { BuildingIndicator, useBuildRunState } from './BuildingIndicator';
 import { Panel } from './milestoneChrome';
 import {
   BLOCKED_ASK,
@@ -108,14 +109,19 @@ export function MilestoneTaskBoard({
     return [...all].sort((a, b) => place(a.id) - place(b.id));
   }, [fixtures, milestone.rows, localRows, localOrder]);
   const cards = useMemo(() => milestoneBoardCards(rows, tasks, project), [rows, tasks, project]);
+  // The task the runner is building now shows the Building indicator on its card (Figma Show building).
+  const buildState = useBuildRunState(milestone.status, milestone.buildRun, staff);
+  const buildingTaskId = buildState === 'live' || buildState === 'stalled' ? milestone.buildRun?.taskId ?? null : null;
   const card = useMemo<BoardCard>(() => {
     const origins = milestoneCardOrigins(rows);
     return {
       runStatus: RUN_ORDER_STATUS,
       origin: (task) => origins.get(task.id) ?? null,
       pullRequest: (task) => pullRequestChip(task.pullRequestUrl),
+      leading: (task) =>
+        buildState && buildingTaskId && task.id === buildingTaskId ? <BuildingIndicator state={buildState} size={14} /> : null,
     };
-  }, [rows]);
+  }, [rows, buildState, buildingTaskId]);
   const reorderTasks = actions?.reorderTasks;
   const milestoneId = milestone.id;
   const reorder = useMemo<BoardReorder>(

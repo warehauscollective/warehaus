@@ -152,7 +152,7 @@ describe('sidebar collapse reflow', () => {
     assert.equal(chromeSource.includes("setProperty('--portal-rail-w', '0px')"), false);
     assert.match(
       css,
-      /html\[data-sidebar='collapsed'\] \[data-testid='portal-sidebar'\] \{\s*position: fixed;\s*top: 24px;\s*left: 24px;/,
+      /html\[data-sidebar='collapsed'\] \[data-testid='portal-sidebar'\] \{\s*position: fixed;\s*top: calc\(24px \+ var\(--shell-inset-top, 0px\)\);\s*left: 24px;/,
     );
     assert.match(css, /width: 244px;\s*min-width: 244px;\s*max-width: 244px;\s*height: 58px;/);
     assert.equal(css.includes('width: 72px'), false);

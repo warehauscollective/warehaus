@@ -276,6 +276,12 @@ export default defineSchema({
     approverContactId: v.optional(v.id('contacts')),
     /** When that human decided. */
     decidedAt: v.optional(v.number()),
+    /**
+     * When Peter approved this milestone's design (Approve designs on the tile).
+     * Staff only. Clients never receive it. Absent until he approves.
+     */
+    designApprovedAt: v.optional(v.number()),
+    designApproverContactId: v.optional(v.id('contacts')),
     /** Clients do not see a milestone until this is true. Inserts stay false. */
     publishToWarehaus: v.boolean(),
     /**
@@ -425,6 +431,12 @@ export default defineSchema({
      * grace window, so Retry cannot start a second run over it.
      */
     settledAt: v.optional(v.number()),
+    /**
+     * The run's last sign of life (protocol 4): the runner lists the runs it
+     * holds on every claim and ping. Written at most once a minute. Absent on
+     * a run from an older runner, which never shows Stalled.
+     */
+    aliveAt: v.optional(v.number()),
   })
     .index('by_milestone', ['milestoneId', 'startedAt'])
     .index('by_task', ['taskId'])
@@ -470,9 +482,28 @@ export default defineSchema({
     revokedAt: v.optional(v.number()),
     /** The runner protocol version from its last heartbeat. */
     protocolVersion: v.optional(v.number()),
+    /** Set while the runner app on that Mac is paused. Cleared when it resumes. */
+    pausedAt: v.optional(v.number()),
   })
     .index('by_runnerId', ['runnerId'])
     .index('by_registeredAt', ['registeredAt']),
+
+  /**
+   * Runner app builds published by CI on a production deploy (decision 0005).
+   * The zip lives in Convex file storage, so the download is never public:
+   * staff get it from the Portal and runners through their own secret.
+   */
+  runnerAppReleases: defineTable({
+    version: v.string(),
+    /** Monotonic build number. The app updates to a higher one. */
+    build: v.number(),
+    storageId: v.id('_storage'),
+    sha256: v.string(),
+    size: v.number(),
+    minMacOS: v.string(),
+    publishedAt: v.number(),
+  })
+    .index('by_build', ['build']),
 
   /**
    * A runner set-up waiting for staff to confirm its code. The CLI holds the
@@ -505,18 +536,34 @@ export default defineSchema({
     addedBy: v.string(),
     createdAt: v.number(),
     /**
-     * `open` while the note waits on Peter: an approval request or a blocked
-     * task. Cleared when it is answered, so the open list stays short.
+     * An Ask (GLOSSARY.md): the note waits on one staff member. `open` is true
+     * while it waits and cleared when it is answered, so the open lists stay
+     * short. Written through `_lib/askStore.ts`.
      */
-    needsPeter: v.optional(v.literal('open')),
-    /** Why it needs Peter. Set with needsPeter and kept after it is answered. */
+    open: v.optional(v.literal(true)),
+    /**
+     * The staff contact the Ask waits on. Kept after it is answered. Absent on
+     * a plain note, and on an Ask written where Peter has no contact.
+     */
+    waitingOn: v.optional(v.id('contacts')),
+    /** Why it is an Ask. Set with `open` and kept after it is answered. */
     reason: v.optional(v.union(v.literal('approval'), v.literal('blocked'))),
     /** The blocked task. Absent on an approval request. */
     taskId: v.optional(v.id('tasks')),
+    /**
+     * The flag `open` replaced. Only the one-off migration in
+     * `_lib/askMigration.ts` reads it, through `by_needsPeter`, and clears it
+     * as it turns each row into an Ask waiting on Peter. The field and that
+     * index stay until the migration has run on production; a deploy that
+     * drops them before then fails on the rows that still carry the flag.
+     */
+    needsPeter: v.optional(v.literal('open')),
   })
     .index('by_milestone_createdAt', ['milestoneId', 'createdAt'])
     .index('by_needsPeter', ['needsPeter', 'createdAt'])
-    .index('by_milestone_needsPeter', ['milestoneId', 'needsPeter']),
+    .index('by_open', ['open', 'createdAt'])
+    .index('by_waitingOn_open', ['waitingOn', 'open', 'createdAt'])
+    .index('by_milestone_open', ['milestoneId', 'open']),
 
   /**
    * Milestone → Shared Resource. Same org only.

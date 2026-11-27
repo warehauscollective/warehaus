@@ -76,6 +76,7 @@ const samples: Record<string, Record<string, unknown>> = {
   },
   record_decision: { projectId: 'project-1', title: 'Tasks live only inside milestones.', idempotencyKey: 'decision-1' },
   get_milestone_status: { milestoneId: 'milestone-1' },
+  list_asks: { person: 'maya@warehaus.test' },
   list_needs_peter: {},
   add_note: { milestoneId: 'milestone-1', body: 'Design check passed.', idempotencyKey: 'note-1' },
   approve_milestone: { milestoneId: 'milestone-1', iteration: 2, idempotencyKey: 'approve-1' },
@@ -112,6 +113,7 @@ const paths: Record<string, { method: 'GET' | 'POST'; path: string }> = {
   upsert_glossary_term: { method: 'POST', path: '/api/v1/context/terms' },
   record_decision: { method: 'POST', path: '/api/v1/context/decisions' },
   get_milestone_status: { method: 'GET', path: '/api/v1/milestones/item' },
+  list_asks: { method: 'GET', path: '/api/v1/milestones/asks' },
   list_needs_peter: { method: 'GET', path: '/api/v1/milestones/needs-peter' },
   add_note: { method: 'POST', path: '/api/v1/milestones/note' },
   approve_milestone: { method: 'POST', path: '/api/v1/milestones/milestone-1/review' },
@@ -133,6 +135,25 @@ describe('portal MCP tools', () => {
         assert.equal(typeof planned.call.idempotencyKey, 'string', tool.name);
         assert.equal(planned.call.body && 'idempotencyKey' in planned.call.body, false, tool.name);
       }
+    }
+  });
+
+  it('lists Asks for everyone or one person, and keeps the old name for one release', () => {
+    const everyone = planToolCall('list_asks', {});
+    assert.equal(everyone.ok, true);
+    if (everyone.ok) {
+      assert.equal(everyone.call.path, '/api/v1/milestones/asks');
+      assert.equal(everyone.call.search, undefined);
+    }
+    const one = planToolCall('list_asks', { person: ' maya@warehaus.test ' });
+    assert.equal(one.ok, true);
+    if (one.ok) assert.deepEqual(one.call.search, { person: 'maya@warehaus.test' });
+    assert.equal(planToolCall('list_asks', { person: '' }).ok, false);
+    const old = planToolCall('list_needs_peter', {});
+    assert.equal(old.ok, true);
+    if (old.ok) {
+      assert.equal(old.call.path, '/api/v1/milestones/needs-peter');
+      assert.equal(old.call.search, undefined);
     }
   });
 
@@ -226,7 +247,15 @@ describe('portal MCP tools', () => {
       const empty = planToolCall(name, { taskId: 'task-1', stage: 'Building', expectedLastEditedTime: '', idempotencyKey: `${name}-empty` });
       assert.equal(empty.ok, true, name);
       const tool = portalTools.find((item) => item.name === name);
-      assert.match(tool?.description ?? '', /Leave it out when get_task shows lastEditedTime null/, name);
+      assert.match(tool?.description ?? '', /Leave it out when get_task shows portalOwned true or lastEditedTime null/, name);
+      assert.match(tool?.description ?? '', /any expectedLastEditedTime sent for it is ignored/, name);
+      const dummy = planToolCall(name, {
+        taskId: 'task-1',
+        stage: 'Building',
+        expectedLastEditedTime: '2026-11-25T23:00:00.000Z',
+        idempotencyKey: `${name}-dummy`,
+      });
+      assert.equal(dummy.ok, true, name);
     }
   });
 

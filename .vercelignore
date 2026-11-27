@@ -1,0 +1,8 @@
+# Files the Vercel CLI never uploads on a Portal deploy (`vercel deploy --prod`
+# from the repo root). Only build output from the Mac app and the Swift bridge:
+# `swift test` and `xcodebuild` leave hundreds of MB here, and uploading it
+# fails the deploy. Nothing here is read by the Portal build.
+.build/
+.swiftpm/
+DerivedData/
+apps/mac/build/

@@ -46,6 +46,22 @@ _Avoid_: checklist, task list, kanban
 The order a milestone's tasks are worked in: the To Do column of its task board, top first. Staff change it by reordering To Do, except while the milestone is Building.
 _Avoid_: task order, queue, priority
 
+**Milestone branch**:
+The one branch a milestone's code lives on, `milestone/<slug>`. Every task commits straight to it, and it has one pull request into `main`. At Ready to Ship every task is on it, and the local preview runs from it.
+_Avoid_: feature branch, task branch, sub-branch
+
+**Ship and deploy**:
+The button at Ready to Ship that only Peter can press, in the Portal, after a confirm step. It counts as his approval, the merge and "deploy main" for that milestone. It shows only when the milestone has an open pull request into `main` and its project has a deploy setting (Warehaus Portal for now). ADR-0007.
+_Avoid_: release button, deploy button, ship it
+
+**Ship run**:
+One run of the GitHub `ship` workflow that Ship and deploy starts: check the merged code, squash-merge, then deploy Convex and Vercel from one commit. A project has at most one at a time. A failed ship run shows its step, opens an Ask on Peter, and Retry resumes from the step that failed.
+_Avoid_: deploy job, release pipeline
+
+**Deployed commit**:
+The `main` commit a project's production is running, saved by each successful ship run. Every milestone merged at or before it counts as deployed; a milestone merged later shows Not deployed.
+_Avoid_: release, live version
+
 ## Tasks
 
 **Task change**:
@@ -80,6 +96,54 @@ _Avoid_: runner token, runner allowlist
 A read-only run that reads a milestone and its repository and drafts 3 to 10 tasks for staff to review. It never changes code and always uses Claude Code.
 _Avoid_: planner job, auto-plan
 
+**Building indicator**:
+The mark beside a Building milestone's status. It pulses while a run is going; otherwise the status reads Building · Queued, Building · Blocked or, for staff, Building · Stalled. Clients see only the pulse.
+_Avoid_: spinner, progress light
+
+**Sign of life**:
+The runner telling the Portal a run it holds is still going, sent with its claims and pings (protocol 4). The Portal keeps the time of the last one on the run, written at most once a minute.
+_Avoid_: heartbeat (that is the runner itself being online), keepalive
+
+**Stalled**:
+A run with no sign of life for 5 minutes. The milestone shows Building · Stalled to staff; after 15 minutes the stuck sweep blocks the run.
+_Avoid_: hung, frozen, stuck (stuck is the older 30-minute quiet-runner rule)
+
 **Build agent**:
 The tool a project builds its milestones with: Claude Code or a Cursor cloud agent. Staff choose it per project; planning does not use it.
 _Avoid_: driver, agent choice, tool
+
+## Platforms
+
+**Mac app**:
+The Warehaus app on a staff Mac, named **Warehaus Portal** (Warehaus Runner before 2026-11-26). It shows the Portal in its own window and runs the runner from the menu bar, showing Ready, Working, Paused or Needs attention. Staff download it from the Portal.
+_Avoid_: runner app, desktop app
+
+**Native bridge**:
+The typed set of messages between the web Portal and a native shell such as the Mac app. The page uses it to report the attention feed, and the shell uses it to open a page. It is the only way the two talk.
+_Avoid_: JS bridge, postMessage API
+
+**Attention feed**:
+What needs the signed-in person right now: the open Asks waiting on them and new alerts, already filtered by their notification preferences and leaving out their own actions. Every client shows the same feed.
+_Avoid_: notification list, inbox
+
+**Ask**:
+A note that waits on one named staff member to answer it: an approval request or a blocked task. It stays open until that person answers. Approval Asks wait on Peter, the only approver; blocked Asks wait on Peter until milestones or tasks have an owner. The Portal shows it as Needs you.
+_Avoid_: needs Peter, needs attention
+
+## Design
+
+**Canonical screen**:
+The one Figma screen for a view of a route, in its default populated state. Its 1440 Dark and 390 Dark frames are hand built; its Light frames are instances of them. Rules: `docs/design/figma-protocol.md`.
+_Avoid_: screen version, final screen, v2
+
+**Component set**:
+A Figma component with all its looks as variants, such as every `State` of a Button. A component state lives here, never as its own screen.
+_Avoid_: states frame, state screens
+
+**Local component**:
+An organism that only one Portal tab uses, kept in that tab page's Local components section. It moves to the library the second time another tab needs it.
+_Avoid_: page component, one-off component
+
+**Exploration**:
+The section on a tab page for side-by-side options and proposals waiting on Peter. It is empty when nothing is open; the chosen option is applied to the canonical screen and the rest go to Archive.
+_Avoid_: proposal section, iteration copy, sandbox

@@ -3,10 +3,11 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { ConvexProvider, ConvexReactClient } from 'convex/react';
 import { textBlurSave } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { MilestoneDetailView } from './ProjectRoadmap';
-import { anchoredMenuBox, OwnerMenu, Popover, StatusMenu } from './milestoneDetailsEdit';
+import { anchoredMenuBox, approvalNeedsYou, OwnerMenu, Popover, StatusMenu } from './milestoneDetailsEdit';
 
 Object.assign(globalThis, { React });
 
@@ -31,9 +32,12 @@ const milestone = {
   createdAt: Date.UTC(2026, 10, 2),
 } as MilestoneRoadmapView;
 
+// Never connects: a static render only needs a client in context for the live review card.
+const convex = new ConvexReactClient('https://example.convex.cloud');
+
 function view(input: { staff: boolean; preview?: string; email?: string; milestone?: MilestoneRoadmapView }): string {
   return renderToStaticMarkup(
-    createElement(MilestoneDetailView, {
+    createElement(ConvexProvider, { client: convex }, createElement(MilestoneDetailView, {
       milestone: input.milestone ?? milestone,
       project: { id: 'p-site', name: 'Northwind site', clientName: 'Northwind' },
       tasks: [],
@@ -54,7 +58,7 @@ function view(input: { staff: boolean; preview?: string; email?: string; milesto
         attachTask: idle,
         detachTask: idle,
       },
-    }),
+    })),
   );
 }
 
@@ -345,6 +349,32 @@ describe('milestone details panel', () => {
     assert.match(html, /2 tasks move with it/);
     assert.equal(html.includes('3 tasks move'), false);
     assert.equal(html.includes('Move milestone + 3'), false);
+  });
+
+  it('shows Needs you on Approval to Peter while an approval waits on him', () => {
+    const review = {
+      iteration: 2,
+      previewUrl: null,
+      localPreviewUrl: 'http://localhost:3100',
+      history: [{ iteration: 1, decision: 'request_changes', notes: 'Fix', decidedByName: 'Peter', decidedAt: 1, source: 'portal', taskCount: 1 }],
+    } as unknown as NonNullable<MilestoneRoadmapView['review']>;
+    const waiting = { ...milestone, status: 'Ready to Ship', approval: 'changes_requested', review } as MilestoneRoadmapView;
+    const peter = view({ staff: true, email: 'peter@warehaus.co', milestone: waiting });
+    assert.match(peter, /data-testid="milestone-approval-needs-you"[^>]*>Needs you</);
+    assert.match(peter, />Iteration 2 ready to review</);
+    // The old decision does not sit beside the open Ask.
+    assert.equal(peter.includes('data-testid="milestone-approval"'), false);
+    assert.equal(/needs peter|waiting for peter/i.test(peter), false);
+
+    // It waits on Peter, so no one else is told it needs them.
+    assert.equal(view({ staff: true, milestone: waiting }).includes('Needs you'), false);
+    assert.equal(view({ staff: false, email: 'peter@warehaus.co', milestone: waiting }).includes('Needs you'), false);
+
+    const email = 'peter@warehaus.co';
+    assert.equal(approvalNeedsYou({ milestone: { ...waiting, status: 'Building' }, viewerEmail: email }), null);
+    assert.equal(approvalNeedsYou({ milestone: { ...waiting, review: { ...review, localPreviewUrl: null } }, viewerEmail: email }), null);
+    const decided = { ...review, history: [{ ...review.history[0], iteration: 2, decision: 'approve' as const }] };
+    assert.equal(approvalNeedsYou({ milestone: { ...waiting, review: decided }, viewerEmail: email }), null);
   });
 
   it('hides approval and the review button from a client', () => {

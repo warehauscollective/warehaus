@@ -4,6 +4,7 @@ import { DM_Sans, Geist, Geist_Mono } from 'next/font/google';
 import { ConvexClientProvider } from '@/components/providers/ConvexClientProvider';
 import { ThemeBoot } from '@/components/account/ThemeBoot';
 import { sidebarBootScript } from '@/components/layout/sidebarCollapse';
+import { shellBootScript } from '@/lib/shell/shellBoot';
 import { fixturePreviewAllowed } from '@/lib/data/fixturePreviewGate';
 import '@/styles/global.css';
 
@@ -101,6 +102,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         ) : null}
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <script dangerouslySetInnerHTML={{ __html: sidebarBootScript }} />
+        <script dangerouslySetInnerHTML={{ __html: shellBootScript }} />
       </head>
       <body className="bg-background text-foreground font-body antialiased" suppressHydrationWarning>
         <ThemeBoot />

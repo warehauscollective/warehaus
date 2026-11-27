@@ -124,7 +124,7 @@ export function NotificationSettings({
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22, lineHeight: '26px', fontWeight: 700, margin: 0 }}>
             Notifications
           </h2>
-          <p style={{ fontSize: 15, lineHeight: '19px', color: 'var(--muted)', margin: '4px 0 0' }}>
+          <p style={{ fontSize: 13, lineHeight: '19px', color: 'var(--muted)', margin: '4px 0 0' }}>
             {staff ? 'Email and in-portal' : 'Choose what reaches your inbox'}
           </p>
         </header>
@@ -214,10 +214,14 @@ function NotificationRow({
 }) {
   const copy = NOTIFICATION_COPY[prefKey];
   return (
-    <div className="flex items-center" style={{ gap: 16, padding: '12px 0' }}>
+    <div
+      className="flex items-center"
+      data-testid={`notify-row-${prefKey}`}
+      style={{ gap: 24, padding: '24px 0', borderBottom: '1px solid var(--border)' }}
+    >
       <div className="min-w-0 flex-1">
-        <p style={{ fontSize: 15, lineHeight: '20px', fontWeight: 600, margin: 0 }}>{copy.label}</p>
-        <p style={{ fontSize: 13, lineHeight: '16px', color: 'var(--muted)', margin: '4px 0 0' }}>{copy.body}</p>
+        <p style={{ fontSize: 15, lineHeight: '20px', fontWeight: 500, margin: 0 }}>{copy.label}</p>
+        <p style={{ fontSize: 13, lineHeight: '19px', color: 'var(--muted)', margin: '4px 0 0' }}>{copy.body}</p>
       </div>
       <button
         type="button"

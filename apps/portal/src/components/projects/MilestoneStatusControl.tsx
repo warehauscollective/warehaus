@@ -5,6 +5,8 @@ import { nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { PortalToast } from '@/components/ui/PortalToast';
+import type { BuildRunState } from '@convex/_lib/buildRun';
+import { BuildingIndicator, BuildRunSuffix } from './BuildingIndicator';
 
 /** Shown on the control after a failed save. The status has already rolled back. */
 export const STATUS_SAVE_ERROR = 'Couldn’t save. Nothing changed.';
@@ -195,6 +197,7 @@ export function TileStatusControl({
   onPlay,
   buttonRef,
   bare = false,
+  buildState = null,
 }: {
   status: MilestoneStatus;
   saving?: boolean;
@@ -205,12 +208,16 @@ export function TileStatusControl({
   buttonRef?: Ref<HTMLButtonElement>;
   /** Inside the status and approve box, which draws the outline itself. */
   bare?: boolean;
+  /** The Building indicator. Null unless the milestone is Building. */
+  buildState?: BuildRunState | null;
 }) {
+  const indicator = buildState && !saving ? buildState : null;
   return (
     <div
       className="milestone-status-control ds-mono w-full lg:ml-auto lg:w-max lg:min-w-[174px]"
       data-testid="milestone-status-control"
       data-status={status}
+      data-build-state={indicator ?? undefined}
       style={{
         boxSizing: 'border-box',
         display: 'flex',
@@ -234,9 +241,10 @@ export function TileStatusControl({
         onClick={onToggle}
         style={{ ...tileLabel, color: status === 'Parked' ? 'var(--muted)' : 'var(--fg)' }}
       >
-        <TaskGlyph src={milestoneStatusGlyph(status)} size={12} />
+        {indicator ? <BuildingIndicator state={indicator} /> : <TaskGlyph src={milestoneStatusGlyph(status)} size={12} />}
         <span style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {saving ? `${status}…` : status}
+          <BuildRunSuffix state={indicator} />
         </span>
         <span className="text-[var(--muted)]" aria-hidden style={{ display: 'inline-flex' }}>
           <TaskGlyph src="/icons/task-chev-down.svg" size={12} />

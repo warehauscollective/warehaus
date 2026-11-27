@@ -393,8 +393,8 @@ export const createTask = adminMutation({
     /** Required. A task only exists inside a milestone. */
     milestoneId: v.id('milestones'),
   },
-  handler: async (ctx, args): Promise<{ ok: false; error: string } | { ok: true; outboxId: Id<'notionOutbox'>; duplicate: boolean }> => {
-    return ctx.runMutation(internal.sync.taskWrite.enqueueCreate, {
+  handler: async (ctx, args): Promise<{ ok: false; error: string } | { ok: true; taskId: Id<'tasks'>; duplicate: boolean }> => {
+    return ctx.runMutation(internal.sync.taskWrite.createInMilestone, {
       ...args,
       actorId: ctx.identity.contactId,
     });

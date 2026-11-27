@@ -4,6 +4,7 @@
  * Approval does not close, delete, or rewrite tasks.
  */
 
+import type { BuildRunFacts } from './buildRun';
 import { clientMaySeeProject } from '@warehaus/portal-sync';
 import {
   DEFAULT_MILESTONE_STATUS,
@@ -20,6 +21,7 @@ export const MILESTONE_APPROVALS = ['unreviewed', 'approved', 'changes_requested
 export const MILESTONE_ACTIVITY = {
   ready: 'milestone.ready',
   approved: 'milestone.approved',
+  designApproved: 'milestone.design_approved',
   changesRequested: 'milestone.changes_requested',
   status: 'milestone.status',
   publish: 'milestone.publish',
@@ -475,7 +477,7 @@ export function milestoneActivityInsert(input: {
     tone:
       input.type === 'milestone.changes_requested'
         ? 'warn'
-        : input.type === 'milestone.approved'
+        : input.type === 'milestone.approved' || input.type === 'milestone.design_approved'
           ? 'success'
           : 'accent',
     timestamp: input.timestamp,
@@ -605,6 +607,8 @@ export type MilestoneRoadmapView = {
   localPreviewUrl?: string | null;
   /** Staff-only Figma link on the tile. Absent for clients, including the key. */
   figmaUrl?: string | null;
+  /** Staff only. When Peter approved the design. Absent for clients and until he approves. */
+  designApprovedAt?: number;
   /** Staff only. Where the milestone was created. Absent for clients, including the key. */
   createdVia?: MilestoneCreatedVia;
   /** Staff only. A planning job waiting for, held by, or blocked on a runner. */
@@ -617,6 +621,11 @@ export type MilestoneRoadmapView = {
   prUrl?: string;
   /** Staff only, and only while Planning or Building. When the milestone last changed. */
   updatedAt?: number;
+  /**
+   * Only while Building: whether a run is going and its last sign of life,
+   * for the Building indicator. Clients get no `blocked`.
+   */
+  buildRun?: BuildRunFacts;
 };
 
 export type MilestoneReviewHistoryItem = {

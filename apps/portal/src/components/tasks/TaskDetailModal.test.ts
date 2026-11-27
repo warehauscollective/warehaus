@@ -12,9 +12,6 @@ describe('task detail attach swap', () => {
     assert.match(source, /keep: true/);
     assert.match(source, /hidden=\{!sheets\.detail\}/);
     assert.match(source, /open: sheets\.detail/);
-    assert.match(source, /key: 'stage'/);
-    assert.match(source, /open: sheets\.stage/);
-    assert.match(source, /onClose=\{cancelStage\}/);
     assert.match(source, /key: 'attach'/);
     assert.match(source, /open: attach && Boolean\(task\)/);
     const picker = source.slice(source.indexOf('function AttachPicker'), source.indexOf('const inputStyle'));
@@ -31,12 +28,15 @@ describe('task detail attach swap', () => {
     assert.match(rule, /-webkit-backdrop-filter:\s*none/);
   });
 
-  it('swaps the stage confirm in place of the task sheet and returns on cancel', () => {
-    const closed = { detail: true, stage: false, attach: false, archive: false, project: false, menu: false };
-    assert.deepEqual(taskSheetOpen({ attach: false, stage: false }), closed);
-    assert.deepEqual(taskSheetOpen({ attach: false, stage: true }), { ...closed, detail: false, stage: true });
-    assert.deepEqual(taskSheetOpen({ attach: false, stage: false }), closed);
-    assert.deepEqual(taskSheetOpen({ attach: false, stage: false, archive: true }), { ...closed, detail: false, archive: true });
+  it('swaps a confirm in place of the task sheet, and shows no stage or Notion-era fields', () => {
+    const closed = { detail: true, attach: false, archive: false, project: false, menu: false };
+    assert.deepEqual(taskSheetOpen({ attach: false }), closed);
+    assert.deepEqual(taskSheetOpen({ attach: false, archive: true }), { ...closed, detail: false, archive: true });
+    assert.deepEqual(taskSheetOpen({ attach: true }), { ...closed, detail: false, attach: true });
+    assert.equal(source.includes('data-stage-chip'), false);
+    assert.equal(source.includes('StaffLiveFields'), false);
+    assert.equal(source.includes('label="Stage"'), false);
+    assert.equal(source.includes('Syncs to Notion'), false);
     assert.match(source, /data-testid="task-archive"/);
     assert.match(source, /data-confirm-kind="archive"/);
     assert.match(source, /testId="task-due"/);
@@ -47,10 +47,6 @@ describe('task detail attach swap', () => {
     assert.match(source, /data-testid="task-copy-link"/);
     assert.match(source, /data-testid="task-breadcrumb"/);
     assert.equal(source.includes('Coming soon'), false);
-    assert.match(source, /returnStageFocus\.current = stageConfirm/);
-    assert.match(source, /onCancel=\{cancelStage\}/);
-    assert.match(source, /data-stage-chip=\{stage\}/);
-    assert.match(source, /\[data-stage-chip\]/);
     assert.match(source, /phone \? null : \([\s\S]*data-testid="task-esc-hint"/);
     const css = readFileSync(new URL('../../styles/global.css', import.meta.url), 'utf8');
     assert.match(css, /body:has\(\[data-sheet-layer='viewport'\]\) \[data-testid='portal-dock'\]/);

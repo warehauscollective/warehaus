@@ -1,10 +1,24 @@
 # Warehaus runner
 
-The runner is a small CLI. Today it runs on Peter's Mac (decided 2026-11-22) and takes its work from production, with a dev runner kept for testing runner changes (ADR-0005). Nothing in it is tied to that machine: see "Run it on macOS" and "Moving it to a server". It asks the Portal for the next piece of milestone work, runs the project's build agent on the milestone branch, and tells the Portal what happened. The milestone's Activity tab shows the run as it goes.
+The runner is a small Node CLI that takes milestone work from the production Portal (ADR-0005). On a staff Mac the Warehaus Portal app (`apps/mac`) runs it. Nothing in it is tied to a Mac: see "Moving it to a server". It asks the Portal for the next piece of milestone work, runs the project's build agent on the milestone branch, and tells the Portal what happened. The milestone's Activity tab shows the run as it goes.
 
 A project picks its build agent: Claude Code or Cursor. Planning always uses Claude Code, read-only. Building uses the project's agent.
 
 Claude Code has no model API key here. The runner never reads or forwards a Claude sign-in. The only program it starts for Claude work is the official `claude` CLI, using the sign-in already on the Mac. The Cursor API key, `CURSOR_API_KEY`, lives on this Mac with the runner. It is never set on Convex, Vercel, chat, or Notion, and it is never printed.
+
+## For staff: set up a Mac as a runner
+
+Staff never use a terminal. Download **Warehaus Portal** from the Portal (Runner status › Set up runner › Download runner app; staff only, Apple silicon, macOS 14 or later), open it, and follow its checklist: GitHub sign-in, Claude Code, then pair by confirming the code in the Portal. The app keeps the runner going from the menu bar, starts it at login, and updates itself between runs.
+
+The full staff guide, with the menu, updates, Remove and troubleshooting, is [`FIRST-RUN.md`](FIRST-RUN.md).
+
+Everything below is for developers and maintainers.
+
+---
+
+# For developers and maintainers (not for staff)
+
+Staff never run any command on this page. These are for working on the runner itself, for a dev runner on shared dev, and for a host with no Mac app.
 
 ## What it does
 
@@ -13,44 +27,44 @@ Claude Code has no model API key here. The runner never reads or forwards a Clau
    - a **build job**: one Cursor cloud agent for a whole milestone whose project uses Cursor
    - a **task**: the lowest-order To do task on the oldest Claude Code milestone whose status is Building
    - nothing
-2. Makes sure it has its own clone of the project's repository, under `~/warehaus-runner/repos/<owner>/<name>`, and a git worktree for the milestone branch, `milestone/<slug>`, under `~/warehaus-runner/worktrees/<owner>/<name>/`. The Portal names the repository with each piece of work. A clone is used only when its origin is that repository. A new branch starts from the repository's default branch. Cursor works on that same branch in the cloud. If the runner cannot clone the repository, the run is blocked with that reason and leaves a "needs Peter" note.
+2. Makes sure it has its own clone of the project's repository, under `~/warehaus-runner/repos/<owner>/<name>`, and a git worktree for the milestone branch, `milestone/<slug>`, under `~/warehaus-runner/worktrees/<owner>/<name>/`. The Portal names the repository with each piece of work. A clone is used only when its origin is that repository. A new branch starts from the repository's default branch. Cursor works on that same branch in the cloud. If the runner cannot clone the repository, the run is blocked with that reason and leaves an Ask waiting on Peter.
 3. Starts the driver. Planning always starts `claude -p` in plan mode and reads the tasks from its stdout. A Claude task starts `claude` in the worktree. A Cursor build posts one cloud agent for the milestone.
 4. When the driver finishes:
-   - **task**: if there is a new commit, pushes the branch, makes sure the milestone has its one pull request into the default branch (`gh pr create` when there is none), and reports `done` with the commit. With no new commit the task is blocked. If Claude wrote `.runner/blocked.txt`, the task is reported `blocked` with that line. Staff retry a blocked task.
+   - **task**: if there is a new commit, pushes the branch, makes sure the milestone has its one pull request into the default branch (`gh pr create` when there is none), and reports `done` with the commit. With no new commit the task is blocked. If Claude wrote `.runner/blocked.txt`, the task is reported `blocked` with that line. Staff retry a blocked task. If Claude ended on the account usage limit, the run is handed back instead: see [Claude's usage limit](#claudes-usage-limit).
    - **planning**: posts the 3 to 10 tasks to `POST /agent/tasks`. The tasks are marked Planner. The milestone stays in Planning. It does not write a file and it does not commit.
    - **build**: follows the Cursor agent, reads commits that name a task with `Portal-Task: <id>`, and reports them to `POST /agent/build`. The agent link is stored on those tasks.
-5. When the last task on a milestone is done, the Portal moves the milestone to Ready to Ship (a Parked task does not count, and the runner never takes one), stores the local preview link so Approve unlocks, and leaves a "needs Peter" note with the pull request, the local preview command and the approval line. The runner then labels the pull request `ready-for-review`, which is what starts the staff Vercel preview against shared dev. A blocked or stuck run leaves a note too. Grok Bot reads open notes with the `list_needs_peter` tool.
+5. When the last task on a milestone is done, the Portal moves the milestone to Ready to Ship (a Parked task does not count, and the runner never takes one), stores the local preview link so Approve unlocks, and leaves an approval Ask waiting on Peter, with the pull request, the local preview command and the approval line. The runner then labels the pull request `ready-for-review`, which is what starts the staff Vercel preview against shared dev. A blocked or stuck run leaves a blocked Ask, which waits on Peter until milestones or tasks have an owner. The Portal shows an Ask as Needs you to the person it waits on. Grok Bot reads open Asks with the `list_asks` tool (`list_needs_peter` is the old name and still works for one release).
 
 Only tasks stored in the Portal are claimed: tasks from the brief, from a change request, or added on the milestone. A task that syncs from Notion is left for a person.
 
-The runner works one task at a time. It commits straight to the milestone branch. It never merges, never closes a pull request, never deploys, and never pushes any branch but `milestone/<slug>`.
+The runner works one task at a time on each milestone, and with `--parallel N` up to N milestones at once (the Mac app uses 4). The Portal never hands out two runs on one milestone, because its tasks share one branch. It commits straight to the milestone branch. It never merges, never closes a pull request, never deploys, and never pushes any branch but `milestone/<slug>`.
 
 When the pull request merges into the default branch, the GitHub webhook moves the milestone to Shipped only if every task that is not Parked is Done, subtasks included. Staff set Shipped through the same check. The runner never sets it.
 
-## Set up
+## Set up from the CLI
 
-Pair the Mac with the Portal once per deployment (ADR-0005 amendment). Nobody copies a token by hand.
+The Mac app does all of this for staff. From a checkout, pair a host with the Portal once per deployment (ADR-0005 amendment). Nobody copies a token by hand.
 
 ```bash
 npm run runner -- setup                 # shared dev
 npm run runner -- setup --production    # production, only when asked
 ```
 
-`setup` prints an 8-character code and opens the Portal. A staff member opens any project page, taps the runner status chip, chooses Set up runner, and enters the code. The modal shows the id the Mac proposed (its name, with `-prod` on production); staff can change it, then confirm. A code lasts 10 minutes, and at most 5 can be open on a deployment at once.
+`setup` prints an 8-character code and opens the Portal. A staff member opens any project, taps the runner status chip, chooses Set up runner, enters the code, and confirms it (Confirm this runner › Confirm and pair). The Mac app opens `/?runnerPair=<code>` instead, so the code is already filled in. The modal shows the id the host proposed (its name, with `-prod` on production); staff can change it. A code lasts 10 minutes, and at most 5 can be open on a deployment at once. `setup --supervised` prints `pairing`, `paired` and `pair_expired` state lines instead of prose, for the Mac app.
 
-The secret is made on the Mac and goes only to the macOS Keychain (service `warehaus-runner`). The Portal stores a hash of it. `~/.config/warehaus/runner.env` (`runner.prod.env` for production) holds only the Portal URL and the runner id. Nothing secret is printed.
+The secret is made on the host and goes only to the macOS Keychain (service `warehaus-runner`). The Portal stores a hash of it. `~/.config/warehaus/runner.env` (`runner.prod.env` for production) holds only the Portal URL and the runner id. Nothing secret is printed.
 
 Staff see every registered runner in the same modal, under Manage runners, and can revoke one. Revoking asks first, stops that runner at once, and puts any run it held back in the queue.
 
-`--production` is never the default. It is required at set-up, it is written into the launchd agent, and a Mac paired to production refuses to start without it. The local preview and the staff Vercel preview still point at shared dev only.
+`--production` is never the default. It is required at set-up, and a host paired to production refuses to start without it. The local preview and the staff Vercel preview still point at shared dev only.
 
-For a project set to Cursor, also set `CURSOR_API_KEY` on this Mac. Leave it unset everywhere else. A missing key blocks that build and leaves a note. It does not get sent to Claude.
+For a project set to Cursor, the runner reads `CURSOR_API_KEY` from its environment. Leave it unset everywhere else. A missing key blocks that build and leaves a note. It does not get sent to Claude. **Gap:** the Mac app passes the runner only an allowlist of its environment (`HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `LANG`, `SSH_AUTH_SOCK`), so a runner under the app has no Cursor key and Cursor builds there block. Claude Code projects are not affected. A fix belongs in its own task.
 
-The Claude process gets an allowlist of its environment and holds no runner secret. Copying the hooks from `hooks/settings.example.json` into `.claude/settings.json` posts nothing from inside the session, because the runner does not pass its secret on. The runner still reports when a run starts and when it finishes. File contents and command output stay on the Mac.
+The Claude process gets an allowlist of its environment and holds no runner secret. Copying the hooks from `hooks/settings.example.json` into `.claude/settings.json` posts nothing from inside the session, because the runner does not pass its secret on. The runner still reports when a run starts and when it finishes. File contents and command output stay on the host.
 
-**Until the dev runner is re-paired**, dev Convex still reads `RUNNER_TOKENS` as a fallback. It is removed, with the dev env var, once dev is re-paired. `PORTAL_AGENT_URL` and `RUNNER_TOKEN` in the environment, with `--id`, still override the saved file and the Keychain, for a host with no Keychain.
+Convex reads no `RUNNER_TOKENS`: a runner gets in only through its registration. `PORTAL_AGENT_URL` and `RUNNER_TOKEN` in the environment, with `--id`, still override the saved file and the Keychain, for a host with no Keychain.
 
-## Run
+## Run from the CLI
 
 ```bash
 npm run runner -- start
@@ -59,17 +73,19 @@ npm run runner -- start
 - A registered runner serves every project that names a repository, each in its own clone. A project with no repository is never handed to any runner.
 - `--repo owner/name` narrows it to those repositories. Repeat it or separate with commas.
 - `--mode interactive` is the default. It opens a Claude Code session for you to drive, on your normal plan limits.
-- `--mode headless` runs `claude -p` with no session to drive. **This draws on the monthly Agent SDK credit, not your plan limits.** Use it on purpose.
+- `--mode headless` runs `claude -p` with no session to drive. **This draws on the monthly Agent SDK credit, not your plan limits.** Use it on purpose. The Mac app always runs headless.
 - `--once` does one piece of work and exits.
 - `--production` talks to the production Portal.
+- `--paused` starts paused: it claims nothing until it reads `resume`.
+- `--parallel N` (headless only, 1 to 4, default 1) works up to N milestones at once, one run on each. Each claim sends `slots` and the run ids it holds (protocol 3); the Portal hands back a run the runner lost track of first, and nothing new once every slot is in use. A Cursor build whose agent is still going gives its slot back for a minute, then is followed again. **Each run is its own headless Claude session, so N runs use the Agent SDK credit N times as fast.**
 
-With nothing to do, the runner waits one minute, then longer, up to five minutes between checks. During a longer wait it calls `POST /agent/ping` every 75 seconds. The ping claims nothing: it only tells the Portal the runner is alive, so the runner status chip on the project page reads Ready (seen within the last 10 minutes). Each call sends the runner's protocol version. A runner below the Portal's minimum shows "Runner out of date" and gets no work until it is updated. The runner never updates its own code.
+With nothing to do, the runner waits one minute, then longer, up to five minutes between checks. During a longer wait it calls `POST /agent/ping` every 75 seconds. The ping claims nothing: it only tells the Portal the runner is alive, so the runner status chip on the project page reads Ready (seen within the last 10 minutes). Each call sends the runner's protocol version, and `paused: true` while paused. While runs go it pings every 75 seconds too, and every claim and ping lists the runs it holds (`held`, protocol 4): each one gets a sign of life, so the milestone shows the Building indicator, and Stalled after 5 minutes without one. A runner below the Portal's minimum shows "Runner out of date" and gets no work until it is updated. The CLI never updates its own code; under the Mac app, the app updates itself, and the runner with it, between runs.
 
 ## Try it end to end
 
-Use shared dev, never production.
+Use shared dev, never production. Release builds of the Mac app pair to production only, so a dev runner uses the CLI. The fuller checklist is "Not for staff: first live milestone run" at the end of `FIRST-RUN.md`.
 
-1. Pair the Mac with dev: `npm run runner -- setup`.
+1. Pair with dev: `npm run runner -- setup`.
 2. Connect Grok Bot or Claude to the Portal MCP server (`docs/portal-mcp.md`).
 3. Ask the bot to create a milestone with `create_milestone` and a task list. It lands at Planning.
 4. In the Portal, open the milestone and press play until its status is Building.
@@ -80,38 +96,43 @@ Use shared dev, never production.
 9. Open the local preview: `npm run preview:pr -- milestone/<slug>`.
 10. Approve in the Portal or in Grok Bot. Approval records the decision. Merge and deploy stay separate steps.
 
-## Run it on macOS
+## What a host needs
 
-The runner is a plain Node process that polls the Portal, so it needs no open port.
+The runner is a plain Node process that polls the Portal, so it needs no open port. The Mac app bundles Node and `gh`; a CLI host provides its own.
 
-### What the Mac needs
-
-- Node 22, `git`, and `gh` signed in (`gh auth status`) with push access to each repository it serves. `git` must be able to clone over HTTPS (`gh auth setup-git` does this).
+- Node 22 or later, `git`, and `gh` signed in (`gh auth status`) with push access to each repository it serves. `git` must be able to clone over HTTPS (`gh auth setup-git` does this).
 - The official `claude` CLI, signed in, for planning and for Claude Code projects.
 - Room under `~/warehaus-runner/` for its clones and worktrees. It never works in a person's own checkout.
 
-### Keep it running
+## The old launchd agent (legacy)
+
+Before the Mac app, a Mac kept the runner going with a launchd agent. The app replaces it: on a Mac that still has `co.warehaus.runner.prod`, the checklist offers Replace it, which unloads and removes the agent and runs the runner itself. Staff never need these commands. They remain for a dev runner or a Mac without the app.
 
 ```bash
-npm run runner -- install                 # dev
-npm run runner -- install --production    # production
-```
-
-`install` writes one launchd agent per deployment to `~/Library/LaunchAgents` (`co.warehaus.runner`, `co.warehaus.runner.prod`) and loads it. launchd starts the runner at login and restarts it if it stops. It refuses a Mac that is not paired to that deployment. The file holds no secret.
-
-The agent runs `--mode headless`, because launchd has no terminal. **Headless Claude draws on the monthly Agent SDK credit, not plan limits.** A Cursor build starts no Claude session, but planning still runs `claude -p`. For interactive Claude Code, start the runner by hand in a terminal instead, under `screen` or `tmux` if it should outlive the window.
-
-```bash
-npm run runner -- uninstall [--production]                           # stop and remove
+npm run runner -- install [--production]                             # write and load the agent
+npm run runner -- uninstall [--production]                           # stop and remove it
 launchctl kickstart -k gui/$(id -u)/co.warehaus.runner              # restart
 tail -f ~/Library/Logs/co.warehaus.runner.log                        # its log
 ```
 
-The log holds the runner's own lines only. It never holds a secret or a key.
+`install` writes one agent per deployment to `~/Library/LaunchAgents` (`co.warehaus.runner`, `co.warehaus.runner.prod`) and loads it. It refuses a host that is not paired to that deployment, and the file holds no secret. The agent runs `--mode headless`, which draws on the Agent SDK credit.
 
-### A sleeping Mac
+## A sleeping Mac
 
-The runner holds `caffeinate -i` while a run is in progress, and only then, so the Mac does not idle-sleep in the middle of a task. A closed lid still stops it. The Portal handles that on its own: after 30 minutes with no call, the sweep releases the run and blocks the task or the build, and staff see Retry. A milestone that has been Building for 30 minutes with no runner online gets a "needs Peter" note, which says whether no runner is set up at all. The note closes when a runner is back.
+The runner holds `caffeinate -i` while a run is in progress, and only then, so the Mac does not idle-sleep in the middle of a task. A closed lid still stops it. The Portal handles that on its own: after 15 minutes with no sign of life for a run (30 minutes with no call from a runner older than protocol 4), the sweep blocks the task or the build, and staff see Retry. The sweep runs every 10 minutes, so that happens 15 to 25 minutes after the last sign of life. A milestone that has been Building for 30 minutes with no runner online gets an Ask waiting on Peter, which says whether no runner is set up at all. The Ask closes when a runner is back.
+
+## Claude's usage limit
+
+When headless Claude Code hits the account usage limit it exits at once, with a last line such as `You've hit your 5-hour limit · resets 8:30am (America/New_York)`. Before this the runner reported that as a run with no new commit, so the task was blocked with an Ask waiting on Peter, and the next task met the same limit seconds later (2026-11-26, tasks 04 to 07 of "Milestone tasks as a board").
+
+Now, headless, the runner keeps the tail of Claude's output (it still reaches the log line for line) and reads its last three lines:
+
+- A short line on its own that reads like a usage limit (`usage limit reached`, `You've hit your … limit`, `5-hour limit reached`, and the older `Claude AI usage limit reached|<epoch>`) ends the run as **released**, unless Claude wrote `.runner/blocked.txt`, which still wins. A summary that only mentions limits does not count.
+- `POST /agent/release` hands the run back: the run is cancelled and settled, the task goes back to To do (a planning job back to the queue), the feed gets a note such as "Task 04 went back to To do · Claude usage limit · resets 8:30am (America/New_York)", and no Ask is written. A commit Claude made before the limit is not pushed; it stays in the worktree and the next run on the milestone carries on from it.
+- The runner then claims nothing until the reset plus one minute. The time is read in the zone in brackets, or the Mac's own zone; a day (`Mon 9am`) or date (`Nov 28, 5pm`) is honoured. With no reset time it can read it waits 30 minutes, and it never waits more than 8 days. It keeps pinging, so the Portal chip still reads Ready.
+- The limit is on the account, so with `--parallel` it holds every slot, not only the one that hit it. Runs already going finish on their own; any that hit the limit too are handed back the same way.
+- Supervised, it prints `waiting` with reason `usage_limit`, `until` (when it takes work again) and `resetsAt` (the reset Claude named, or null). It is not an `attention` line, because nobody has to act. The current Mac app ignores the `waiting` type until it learns to show it. The `finished` line for the run has status `released`.
+- A Portal that predates `/agent/release` answers 404. The runner then leaves the run open: the first claim after the reset hands that same run back to it, because an open run the runner does not list comes back first. Interactive runs are not read, since a person is at the terminal.
 
 ## Retry and the run it replaces
 
@@ -141,6 +162,25 @@ node tools/runner/scripts/check-cursor-branch.mjs --launch --cleanup
 ```
 
 Each step prints `ok` or `FAIL`. A pass looks like: branch on origin, branch starts at `main`, agent launched, agent finished, a commit carries `Portal-Task: check:1`, Cursor opened no pull request, draft pull request into `main`, pull request closed, branch deleted. Leave off `--cleanup` to look at the branch and the pull request first, then run the clean-up line the script prints. Add a line to the dry run log below when you run step 2.
+
+## Under the runner Mac app
+
+The Warehaus Portal Mac app (`apps/mac`) starts the runner from its bundle (`Contents/Resources/runner`, with its own Node and `gh`), so staff never type these commands. It runs:
+
+```bash
+node tools/runner/src/cli.mjs setup --supervised --production           # first launch: pairing
+node tools/runner/src/cli.mjs start --supervised --mode headless --parallel 4 --production [--paused]
+node tools/runner/src/cli.mjs app-release --production                  # the update check
+node tools/runner/src/cli.mjs remove --production                       # Remove this runner…
+```
+
+- `--supervised` prints one state line per change on stdout, `@@warehaus ` and a JSON object: `started`, `idle`, `working`, `finished`, `paused`, `attention` with a reason (`unauthorized`, `out_of_date`, `github`, `unreachable`, `not_paired`), or `waiting` with reason `usage_limit`, `until` and `resetsAt`. An app build that does not know a line's type drops it. `setup --supervised` prints `pairing` (code, id, expiry), `paired` and `pair_expired`. Every other line is the runner's own log. `start` reads `pause` or `resume` on stdin, and stops when the app closes its stdin.
+- A paused runner claims nothing and sends `paused: true` with each heartbeat, so the Portal chip reads Paused. A run in progress finishes first. The app remembers a pause and starts the runner with `--paused` next time.
+- Supervised, it checks `gh auth status` every 10 minutes and takes no work while GitHub is signed out.
+- `app-release` calls `POST /agent/app-release` with the runner secret and prints one `app_release` line with the latest published build (version, build, sha256, size, minMacOS, url) or `null`. Exit 2 means not paired, 3 the Portal refused the secret, 1 the Portal could not be reached. The app installs a build only when its build number is higher than its own, and only between runs.
+- `remove` revokes the runner in the Portal with its own secret (`POST /agent/unpair`), removes any old launchd agent, and deletes its Keychain secret and saved file. Exit code 3 means it was removed from the Mac but the Portal could not be reached; 4 means the Keychain entry could not be deleted.
+
+How the app is built, signed and released is in `apps/mac/README.md`.
 
 ## Moving it to a server
 

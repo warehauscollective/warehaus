@@ -186,10 +186,12 @@ export type BoardCard = {
   runStatus: string;
   origin?: (task: PortalTask) => string | null;
   pullRequest?: (task: PortalTask) => string | null;
+  /** A mark before the card's name, such as the Building indicator on the task being built. */
+  leading?: (task: PortalTask) => ReactNode | null;
 };
 
 /** What one card shows beyond its name and child count. */
-export type CardFace = { run: string | null; origin: string | null; pullRequest: string | null };
+export type CardFace = { run: string | null; origin: string | null; pullRequest: string | null; leading?: ReactNode | null };
 
 /** `01`, `02`, … by place in the run column. */
 export function runNumbers(ids: readonly string[]): Map<string, string> {
@@ -359,6 +361,7 @@ export function TaskBoard({
       run: runs.get(task.id) ?? null,
       origin: staff ? card.origin?.(task) ?? null : null,
       pullRequest: staff ? card.pullRequest?.(task) ?? null : null,
+      leading: card.leading?.(task) ?? null,
     });
   }, [card, columns, mode, staff]);
   const reorderStatus = mode === 'status' && reorder ? reorder.status : null;
@@ -1395,6 +1398,11 @@ export function TaskCardFace({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          {face.leading ? (
+            <span data-testid="card-leading" className="inline-flex items-center" style={{ flex: '0 0 auto', height: 21 }}>
+              {face.leading}
+            </span>
+          ) : null}
           {face.run ? (
             <span className="ds-mono" data-testid="card-run" style={{ flex: '0 0 auto', fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
               {face.run}

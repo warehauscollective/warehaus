@@ -1,15 +1,17 @@
 /**
  * Runner HTTP routes. The runner on a staff Mac calls these with its secret
- * as the bearer token and its id in `X-Runner-Id`. A registered runner is
- * checked against the stored hash of its secret; `RUNNER_TOKENS` is read
- * only as a fallback until the dev runner is re-paired (ADR-0005 amendment).
+ * as the bearer token and its id in `X-Runner-Id`. Only a registered runner
+ * is let in: its secret is checked against the stored hash (ADR-0005).
  *
  *   POST /agent/claim     next planning job, task, or Cursor build
  *   POST /agent/events    one short line for the run feed
  *   POST /agent/tasks     the task list from a planning run
  *   POST /agent/complete  end a task run, or a planning run that failed
+ *   POST /agent/release   hand a task or planning run back untouched (Claude hit its usage limit)
  *   POST /agent/build     progress from the one Cursor agent on a milestone
- *   POST /agent/ping      an idle runner saying it is alive. Reads and hands out nothing
+ *   POST /agent/ping      the runner saying it is alive, with the runs it holds (protocol 4). Hands out nothing
+ *   POST /agent/app-release  the latest runner app build, for the app to update itself between runs
+ *   POST /agent/unpair    a registered runner revoking itself (Remove this runner in the Mac app)
  *
  * Pairing takes no runner token:
  *
@@ -20,20 +22,32 @@
  * the run: a retry returns the same run or the stored outcome.
  */
 
-import { RUNNER_PAIR_PATHS, RUNNER_PROTOCOL_HEADER } from '@warehaus/runner-protocol';
+import { RUNNER_APP_RELEASE_PATH, RUNNER_PAIR_PATHS, RUNNER_PROTOCOL_HEADER } from '@warehaus/runner-protocol';
 import { internal } from './_generated/api';
 import { httpAction } from './_generated/server';
-import { RUNNER_ID_INVALID, RUNNER_ID_PATTERN, RUNNER_UNAUTHORIZED, authorizeRunner, reposForRunner, runnerRepos } from './_lib/agentRun';
+import { heldRunIds, RUNNER_ID_INVALID, RUNNER_ID_PATTERN, RUNNER_UNAUTHORIZED, runnerRepos, runnerSlots } from './_lib/agentRun';
 import {
   PAIRING_BAD_REQUEST,
   pairingCodeFrom,
+  RUNNER_PAUSED,
   runnerOutOfDate,
   runnerProtocolVersion,
   RUNNER_OUT_OF_DATE,
 } from './_lib/runnerRegistry';
 import { sha256Hex } from './_lib/tokenCrypto';
+import { SIGN_OF_LIFE_PROTOCOL } from './_lib/buildRun';
 
-export const AGENT_ROUTES = ['/agent/claim', '/agent/events', '/agent/tasks', '/agent/complete', '/agent/build', '/agent/ping'] as const;
+export const AGENT_ROUTES = [
+  '/agent/claim',
+  '/agent/events',
+  '/agent/tasks',
+  '/agent/complete',
+  '/agent/release',
+  '/agent/build',
+  '/agent/ping',
+  '/agent/unpair',
+  RUNNER_APP_RELEASE_PATH,
+] as const;
 export const AGENT_PAIR_ROUTES = [RUNNER_PAIR_PATHS.start, RUNNER_PAIR_PATHS.poll] as const;
 
 const BODY_LIMIT = 60_000;
@@ -67,39 +81,54 @@ export const agentHttp = httpAction(async (ctx, request) => {
   if (!RUNNER_ID_PATTERN.test(runnerId)) return json({ error: RUNNER_ID_INVALID }, 400);
   const bearer = /^Bearer\s+(\S+)\s*$/.exec(request.headers.get('authorization') ?? '')?.[1] ?? '';
   if (!bearer) return json({ error: RUNNER_UNAUTHORIZED }, 401);
-  // Fallback until the dev runner is re-paired. A missing RUNNER_TOKENS is no longer an error.
-  const env = authorizeRunner({
-    configured: process.env.RUNNER_TOKENS,
-    authorizationHeader: request.headers.get('authorization'),
-    runnerId,
-  });
   const protocolVersion = runnerProtocolVersion(request.headers.get(RUNNER_PROTOCOL_HEADER));
 
   const read = await readBody(request);
   if (!read.ok) return read.response;
   const body = read.body;
 
+  // The runner app sends `paused` on every call; an older runner sends nothing.
+  const paused = typeof body.paused === 'boolean' ? body.paused : undefined;
+  // Protocol 4: claims and pings list the runs the runner holds, and each gets a sign of life.
+  const signsOfLife = protocolVersion >= SIGN_OF_LIFE_PROTOCOL;
+  const held = signsOfLife && Array.isArray(body.held) ? heldRunIds(body.held) : [];
   const alive = await ctx.runMutation(internal.agent.touchRunner, {
     runnerId,
     tokenHash: await sha256Hex(bearer),
-    envAuthorized: env.ok,
     protocolVersion,
+    ...(paused !== undefined ? { paused } : {}),
+    ...(held.length ? { alive: held } : {}),
   });
   if (!alive.ok) return json({ error: alive.error }, alive.status);
 
   const path = new URL(request.url).pathname;
   // The touch above is the whole heartbeat: at most one write a minute.
   if (path === '/agent/ping') return json({ ok: true }, 200);
+  if (path === '/agent/unpair') {
+    // Only a registered runner, proven by its own secret, removes itself. A RUNNER_TOKENS runner has nothing to revoke.
+    if (!alive.registered) return json({ error: RUNNER_UNAUTHORIZED }, 401);
+    const result = await ctx.runMutation(internal.runners.unpairRunner, { runnerId });
+    return result.ok ? json(result, 200) : json({ error: result.error }, 404);
+  }
+  if (path === RUNNER_APP_RELEASE_PATH) {
+    const release = await ctx.runQuery(internal.runnerApp.latestForRunner, {});
+    return json(release ?? { ok: true, release: null }, 200);
+  }
   if (path === '/agent/claim') {
     // A registered runner below the minimum protocol gets no work until it is updated.
-    if (alive.registered && runnerOutOfDate(protocolVersion)) return json({ error: RUNNER_OUT_OF_DATE }, 426);
+    if (runnerOutOfDate(protocolVersion)) return json({ error: RUNNER_OUT_OF_DATE }, 426);
+    // A paused runner app takes no new work. It still finishes the run it holds.
+    if (paused === true) return json({ ok: true, resumed: false, kind: 'none', reason: RUNNER_PAUSED }, 200);
     const result = await ctx.runMutation(internal.agent.claimNext, {
       runnerId,
       mode: field(body, 'mode') || undefined,
       // The project setting picks the agent. A tool on the request is ignored.
-      ...(alive.registered
-        ? { repos: runnerRepos(body.repos), anyRepo: true }
-        : { repos: reposForRunner(env.ok ? env.repos : [], body.repos) }),
+      repos: runnerRepos(body.repos),
+      anyRepo: true,
+      // Parallel runs (protocol 3). A runner that sends neither works one run at a time.
+      ...(typeof body.slots === 'number' ? { slots: runnerSlots(body.slots) } : {}),
+      ...(Array.isArray(body.held) ? { held: heldRunIds(body.held) } : {}),
+      ...(signsOfLife ? { signsOfLife: true } : {}),
     });
     return json(result, 200);
   }
@@ -138,6 +167,14 @@ export const agentHttp = httpAction(async (ctx, request) => {
       ...(body.commitSha !== undefined ? { commitSha: body.commitSha } : {}),
       ...(body.reason !== undefined ? { reason: body.reason } : {}),
       ...(body.prUrl !== undefined ? { prUrl: body.prUrl } : {}),
+    });
+    return result.ok ? json(result, 200) : json({ error: result.error }, result.status);
+  }
+  if (path === '/agent/release') {
+    const result = await ctx.runMutation(internal.agent.releaseRun, {
+      runnerId,
+      runId: field(body, 'runId'),
+      ...(body.reason !== undefined ? { reason: body.reason } : {}),
     });
     return result.ok ? json(result, 200) : json({ error: result.error }, result.status);
   }

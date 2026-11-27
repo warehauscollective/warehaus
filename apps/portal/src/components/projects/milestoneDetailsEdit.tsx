@@ -7,6 +7,7 @@ import { localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@c
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { clientSeesDetailsRow, formatDueDate, textBlurSave } from '@convex/_lib/milestoneDetails';
 import { shippedLockedReason, shippedOpenTag } from '@convex/_lib/closeout';
+import { isPeterEmail } from '@convex/_lib/milestoneReview';
 import { MILESTONE_STATUSES, nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
@@ -14,12 +15,35 @@ import { PortalModal, type PortalModalHeader } from '@/components/ui/PortalModal
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { FieldLabel, Panel, fieldStyle } from './milestoneChrome';
 import { StatusPlayButton, useMilestoneStatusMoves } from './MilestoneStatusControl';
+import { BuildingIndicator, BuildRunSuffix, useBuildRunState } from './BuildingIndicator';
+import type { BuildRunState } from '@convex/_lib/buildRun';
 
 const APPROVAL_LABEL = {
   unreviewed: 'Unreviewed',
   approved: 'Approved',
   changes_requested: 'Changes requested',
 } as const;
+
+/** The Approval value while an approval Ask waits on the person looking at it (GLOSSARY.md, Ask). */
+export const APPROVAL_NEEDS_YOU = 'Needs you';
+
+/**
+ * The line under "Needs you", or null when no approval waits on this viewer.
+ * An approval Ask goes to Peter, the only approver, so only he is told it
+ * needs him. It is open while the milestone is Ready to Ship with a preview
+ * and the current iteration has no decision.
+ */
+export function approvalNeedsYou(input: {
+  milestone: Pick<MilestoneRoadmapView, 'status' | 'review'>;
+  viewerEmail: string | null | undefined;
+}): string | null {
+  const review = input.milestone.review;
+  if (!review || input.milestone.status !== 'Ready to Ship') return null;
+  if (!isPeterEmail(input.viewerEmail)) return null;
+  if (!(review.localPreviewUrl || review.previewUrl)) return null;
+  if (review.history.some((item) => item.iteration === review.iteration)) return null;
+  return `Iteration ${review.iteration} ready to review`;
+}
 
 export type MoveTarget = { id: string; name: string };
 
@@ -71,6 +95,7 @@ export function useMilestoneDetailEdits({
   staff,
   fixtures,
   hostSlug,
+  viewerEmail = null,
   moveTargets,
   preview = null,
   showFields,
@@ -171,6 +196,7 @@ export function useMilestoneDetailEdits({
     },
   });
   const statusNow: MilestoneStatus = preview === 'locked' ? 'Awaiting Go' : moves.shown;
+  const buildState = useBuildRunState(statusNow, milestone.buildRun, staff);
   const taskCount = milestone.rows.length;
 
   useEffect(() => {
@@ -402,6 +428,20 @@ export function useMilestoneDetailEdits({
     return target.name.toLowerCase().includes(query);
   });
 
+  const needsYouLine = staff ? approvalNeedsYou({ milestone, viewerEmail }) : null;
+  // Under Status on a phone, under Owner on desktop, as in the Milestone properties frames.
+  const needsYouRow = (placement: 'phone' | 'desktop') =>
+    needsYouLine ? (
+      <div className={placement === 'phone' ? 'col-span-2 lg:hidden' : 'hidden lg:block'}>
+        <DetailRow label="APPROVAL">
+          <ReadValue testId="milestone-approval-needs-you">{APPROVAL_NEEDS_YOU}</ReadValue>
+          <p style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+            {needsYouLine}
+          </p>
+        </DetailRow>
+      </div>
+    ) : null;
+
   const fields = showFields ? (
     <Panel testId="milestone-details">
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-1" data-details-ready={ready ? 'true' : 'false'} data-phone={phone ? 'true' : 'false'} data-details-state={preview ?? 'idle'}>
@@ -415,6 +455,8 @@ export function useMilestoneDetailEdits({
               testId="milestone-status-edit"
               valueTestId="milestone-status"
               label={moves.saving ? `${statusNow}…` : statusNow}
+              leading={buildState && !moves.saving ? <BuildingIndicator state={buildState} /> : null}
+              trailing={moves.saving ? null : <BuildRunSuffix state={buildState} />}
               tone={moves.saving ? 'idle' : tone.status}
               open={shown?.kind === 'status'}
               onClick={() => {
@@ -447,10 +489,11 @@ export function useMilestoneDetailEdits({
           ) : null}
           {staff && shown?.kind === 'status' && !phone ? (
             <Popover onClose={() => closeOverlay(true)}>
-              <StatusMenu current={statusNow} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={() => closeOverlay(true)} />
+              <StatusMenu current={statusNow} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={() => closeOverlay(true)} buildState={buildState} />
             </Popover>
           ) : null}
         </DetailRow>
+        {needsYouRow('phone')}
         {clientSeesDetailsRow('owner', staff) ? (
           <DetailRow label="OWNER" outlined={staff}>
             {staff ? (
@@ -476,6 +519,7 @@ export function useMilestoneDetailEdits({
             ) : null}
           </DetailRow>
         ) : null}
+        {needsYouRow('desktop')}
         {clientSeesDetailsRow('creator', staff) ? (
           <DetailRow label="CREATOR">
             <ReadValue testId="milestone-creator">{milestone.creatorName?.trim() || '—'}</ReadValue>
@@ -621,7 +665,7 @@ export function useMilestoneDetailEdits({
             setTileLink={mutations.setTileLink}
           />
         ) : null}
-        {clientSeesDetailsRow('approval', staff) && milestone.approval && milestone.approval !== 'unreviewed' ? (
+        {clientSeesDetailsRow('approval', staff) && milestone.approval && milestone.approval !== 'unreviewed' && !needsYouLine ? (
           <DetailRow label="APPROVAL" wide>
             <ReadValue testId="milestone-approval">{APPROVAL_LABEL[milestone.approval]}</ReadValue>
           </DetailRow>
@@ -652,7 +696,7 @@ export function useMilestoneDetailEdits({
       onClose={() => closeOverlay(true)}
     >
       {staff && shown.kind === 'status' ? (
-        <StatusMenu current={statusNow} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
+        <StatusMenu current={statusNow} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={() => closeOverlay(true)} buildState={buildState} sheet />
       ) : null}
       {shown.kind === 'owner' ? (
         <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} currentName={milestone.ownerName} onPick={pickOwner} onClose={() => closeOverlay(true)} sheet />
@@ -996,9 +1040,15 @@ function ValueButton({
   locked,
   onClick,
   after,
+  leading,
+  trailing,
 }: {
   fieldLabel: string;
   label: string;
+  /** Before the value, such as the Building indicator. */
+  leading?: ReactNode;
+  /** Right after the value, such as " · Queued". */
+  trailing?: ReactNode;
   testId: string;
   valueTestId: string;
   tone: FieldTone;
@@ -1040,7 +1090,9 @@ function ValueButton({
           {fieldLabel}
         </span>
         <span className="flex w-full items-center gap-2">
+          {leading}
           <span data-testid={valueTestId}>{label}</span>
+          {trailing}
           {tone === 'saving' ? <ToneText>Saving…</ToneText> : null}
           {tone === 'saved' ? (
             <span className="inline-flex items-center gap-1" style={{ color: 'var(--muted)', fontSize: 12 }}>
@@ -1132,9 +1184,12 @@ export function StatusMenu({
   sheet,
   canClose = false,
   openCount = 0,
+  buildState = null,
 }: {
   current: string;
   onPick: (status: MilestoneStatus) => void;
+  /** The milestone's Building indicator. The current Building option pulses only while a run is live. */
+  buildState?: BuildRunState | null;
   onClose: () => void;
   sheet?: boolean;
   canClose?: boolean;
@@ -1186,6 +1241,7 @@ export function StatusMenu({
               cursor: lock ? 'not-allowed' : 'pointer',
             }}
           >
+            {selected && status === 'Building' && buildState === 'live' ? <BuildingIndicator state="live" /> : null}
             <span className="whitespace-nowrap">{status}</span>
             {lock === 'shipped' && openCount > 0 ? <Tag>{shippedOpenTag(openCount)}</Tag> : null}
             {lock ? <TaskGlyph src="/icons/task-lock.svg" size={14} /> : null}

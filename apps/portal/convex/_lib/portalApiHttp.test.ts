@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { portalApiPrefixRoutes, portalApiRoutes } from '../http';
 import { portalApiHttp } from '../portalApi';
+import { memoryCtx } from './memoryCtx.testkit';
 
 describe('portalApiHttp', () => {
   it('rejects a missing bearer before any Convex call', async () => {
@@ -23,6 +24,8 @@ describe('portalApiHttp', () => {
       'GET /api/v1/projects',
       'GET /api/v1/projects/item',
       'POST /api/v1/projects',
+      'GET /api/v1/milestones/asks',
+      'GET /api/v1/milestones/needs-peter',
       'POST /api/v1/milestones/attach',
       'POST /api/v1/milestones/detach',
       'GET /api/v1/context',
@@ -34,5 +37,38 @@ describe('portalApiHttp', () => {
       assert.equal(paths.has(route), true, route);
     }
     assert.deepEqual(portalApiPrefixRoutes, [{ pathPrefix: '/api/v1/milestones/', method: 'POST' }]);
+  });
+
+  it('routes the Asks list with an optional person, and the old needs-peter path to Peter', async () => {
+    const asked: Array<Record<string, unknown>> = [];
+    const get = async (path: string) => {
+      const t = memoryCtx();
+      const response = await t.callHttp(
+        portalApiHttp,
+        new Request(`https://portal.test${path}`, { headers: { authorization: 'Bearer whp_testtokenvalue0001' } }),
+        {
+          respond: (call) => {
+            if (call.name.endsWith('consumeToken')) {
+              return { ok: true, tokenId: 'apiTokens:token', name: 'grok-bot', scope: 'read' };
+            }
+            asked.push({ name: call.name, ...(call.args as Record<string, unknown>) });
+            return { status: 200, body: { items: [] } };
+          },
+        },
+      );
+      return response.status;
+    };
+    assert.equal(await get('/api/v1/milestones/asks'), 200);
+    assert.equal(await get('/api/v1/milestones/asks?person=maya%40warehaus.test'), 200);
+    assert.equal(await get('/api/v1/milestones/needs-peter'), 200);
+    assert.equal(await get(`/api/v1/milestones/asks?person=${'a'.repeat(321)}`), 400);
+    assert.deepEqual(
+      asked.map(({ name, ...args }) => ({ list: String(name).endsWith('listOpenAsks'), args })),
+      [
+        { list: true, args: {} },
+        { list: true, args: { person: 'maya@warehaus.test' } },
+        { list: true, args: { person: 'peter', personOptional: true } },
+      ],
+    );
   });
 });

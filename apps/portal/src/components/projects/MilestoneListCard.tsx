@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { peterMayApproveDeploy } from '@convex/_lib/previewLink';
+import { DESIGN_APPROVAL_STATUSES, peterMayApproveDesign } from '@convex/_lib/designApproval';
 import { localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@convex/_lib/tileLinks';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
@@ -11,6 +12,7 @@ import { PortalModal } from '@/components/ui/PortalModal';
 import { OutlineButton } from '@/components/ui/primitives';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { StatusMenu } from './milestoneDetailsEdit';
+import { useBuildRunState } from './BuildingIndicator';
 import { TileStatusControl, useMilestoneStatusMoves } from './MilestoneStatusControl';
 import { APPROVE_CONFIRM_COPY, APPROVE_CONFIRM_TITLE, RECORDING_APPROVAL, SAVING_APPROVAL_COPY } from './MilestoneReview';
 import {
@@ -149,6 +151,15 @@ function initialTileMenu(preview?: string | null): boolean {
 
 const TILE_LINK_SAVE_ERROR = 'Couldn’t save the link. Nothing changed.';
 
+export const DESIGN_CONFIRM_TITLE = 'Approve the designs for this milestone?';
+export const DESIGN_CONFIRM_COPY = 'Records that you approved the designs. The runner can start building.';
+
+/** Under the chip once Peter approved: "Designs approved · Peter · Nov 25". */
+export function designsApprovedLine(at: number): string {
+  const day = new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' });
+  return `Designs approved · Peter · ${day}`;
+}
+
 export function MilestoneListCard({
   milestone,
   staff,
@@ -158,6 +169,7 @@ export function MilestoneListCard({
   onSetStatus,
   onAdvance,
   onApprove,
+  onApproveDesign,
   onSetLink,
   openConfirm = false,
   phone = false,
@@ -179,6 +191,8 @@ export function MilestoneListCard({
   /** The play button. One step forward from `expected` to `next`. */
   onAdvance?: (expected: MilestoneStatus, next: MilestoneStatus) => void | Promise<unknown>;
   onApprove?: (iteration: number) => Promise<unknown>;
+  /** Peter's Approve designs, before build. */
+  onApproveDesign?: () => Promise<unknown>;
   /** Staff set or clear a tile link. Empty url clears it. */
   onSetLink?: (field: TileLinkField, url: string | null) => void | Promise<unknown>;
   /** Fixture QA opens the one confirm without a click. */
@@ -209,6 +223,9 @@ export function MilestoneListCard({
   const desktopMenuWasOpen = useRef(false);
   const [deploying, setDeploying] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
+  const [designConfirm, setDesignConfirm] = useState(false);
+  const [approvingDesign, setApprovingDesign] = useState(false);
+  const [designError, setDesignError] = useState<string | null>(null);
   useEffect(() => {
     if (!staff || stagePreview !== 'menu') return;
     setConfirm(false);
@@ -264,6 +281,26 @@ export function MilestoneListCard({
     // Either preview unlocks Approve: the Vercel link or the local build.
     previewUrl: milestone.review?.previewUrl || milestone.review?.localPreviewUrl || milestone.localPreviewUrl,
   });
+  const canApproveDesign = peterMayApproveDesign({
+    staff,
+    isPeter,
+    status: milestone.status,
+    designApprovedAt: milestone.designApprovedAt,
+  });
+  // Staff see the approval under the chip until build is over.
+  const designApproved =
+    staff && Boolean(milestone.designApprovedAt) && (DESIGN_APPROVAL_STATUSES as readonly string[]).includes(milestone.status);
+  const confirmDesign = () => {
+    if (!onApproveDesign) {
+      setDesignConfirm(false);
+      return;
+    }
+    setApprovingDesign(true);
+    setDesignError(null);
+    void onApproveDesign().then(() => setDesignConfirm(false)).catch((err) => {
+      setDesignError(userFacingErrorMessage(err, 'Couldn’t save your approval. Nothing changed. Try again.'));
+    }).finally(() => setApprovingDesign(false));
+  };
   const confirmDeploy = () => {
     if (fixtures || !milestone.review || !onApprove) {
       setConfirm(false);
@@ -286,6 +323,7 @@ export function MilestoneListCard({
     onSet: (next, expected) => onSetStatus?.(next, expected),
   });
   const stage = milestoneTileStatus({ status: moves.shown });
+  const buildState = useBuildRunState(moves.shown, milestone.buildRun, staff);
   const subtasks = boardTaskCounts(milestone).nested;
   const awaitingMerge = staff && milestone.approval === 'approved' && milestone.status !== 'Shipped';
   const dateLine = milestoneTileHeadline({
@@ -362,10 +400,11 @@ export function MilestoneListCard({
         moves.play();
       }}
       buttonRef={chipRef}
-      bare={canDeploy}
+      bare={canDeploy || canApproveDesign || designApproved}
+      buildState={buildState}
     />
   ) : (
-    <StatusChip label={stage.label} glyph={stage.glyph} />
+    <StatusChip label={stage.label} glyph={stage.glyph} live={buildState === 'live'} />
   );
   const approveButton = canDeploy ? (
     <button
@@ -377,6 +416,26 @@ export function MilestoneListCard({
       Approve
     </button>
   ) : null;
+  const approveDesignButton = canApproveDesign ? (
+    <button
+      type="button"
+      data-testid="tile-approve-designs"
+      onClick={() => { setStageMenuOpen(false); setConfirm(false); setDesignConfirm(true); }}
+      style={{ width: '100%', height: 42, border: 0, borderRadius: 0, background: '#f59e0b', color: '#0a0a0b', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}
+    >
+      Approve designs
+    </button>
+  ) : null;
+  const designApprovedStrip = designApproved && milestone.designApprovedAt ? (
+    <p
+      data-testid="tile-designs-approved"
+      className="ds-mono"
+      style={{ margin: 0, padding: 12, fontSize: 12, lineHeight: '18px', color: 'var(--fg)', background: 'var(--surface-elevated)' }}
+    >
+      {designsApprovedLine(milestone.designApprovedAt)}
+    </p>
+  ) : null;
+  const showDesignConfirm = designConfirm && !stageMenuOpen;
   const linkButtonStyle = (dimmed: boolean): CSSProperties => ({
     boxSizing: 'border-box',
     display: 'inline-flex',
@@ -484,7 +543,7 @@ export function MilestoneListCard({
       <div className={narrow ? 'flex w-full flex-col items-start gap-3' : 'flex w-full flex-col items-start gap-3 lg:ml-auto lg:w-max lg:min-w-[174px] lg:items-end'}>
         <div className="flex w-full items-start gap-2">
         <div className="relative min-w-0 flex-1" ref={menuAnchorRef}>
-          {canDeploy ? (
+          {canDeploy || canApproveDesign || designApproved ? (
             <div
               data-testid="milestone-stage-action"
               className={narrow ? 'w-full' : 'w-full lg:w-[174px]'}
@@ -492,11 +551,13 @@ export function MilestoneListCard({
             >
               {stageTrigger}
               {approveButton}
+              {approveDesignButton}
+              {designApprovedStrip}
             </div>
           ) : stageTrigger}
           {staff && stageMenuOpen && !phoneSheet ? (
             <TileStagePopover anchorRef={menuAnchorRef}>
-              <StatusMenu current={stage.label} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={closeStageMenu} />
+              <StatusMenu current={stage.label} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={closeStageMenu} buildState={buildState} />
             </TileStagePopover>
           ) : null}
         </div>
@@ -649,6 +710,39 @@ export function MilestoneListCard({
           </div>
         </PortalModal>
       ) : null}
+      {showDesignConfirm ? (
+        <PortalModal
+          testId="milestone-design-confirm"
+          label={DESIGN_CONFIRM_TITLE}
+          onClose={() => {
+            if (!approvingDesign) setDesignConfirm(false);
+          }}
+          narrow={phone || viewportSheet}
+          sheet="bottom"
+          header="compact"
+          blueFocus
+          showIcon={approvingDesign}
+          icon="spinner"
+          showFooter={false}
+          cover={cover}
+          focusCancel
+          locked={approvingDesign}
+          onConfirm={confirmDesign}
+          confirmOnEnter
+        >
+          <div style={{ padding: phone || viewportSheet ? '8px 16px' : '8px 24px' }}>
+            <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{DESIGN_CONFIRM_COPY}</p>
+            <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Nothing merges or deploys.</p>
+            {designError ? <p role="alert" style={{ color: 'var(--danger-text)', fontSize: 14 }}>{designError}</p> : null}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'nowrap', justifyContent: 'flex-end', gap: 8, padding: phone || viewportSheet ? '16px 16px 24px' : '16px 24px 20px' }}>
+            {approvingDesign ? null : <OutlineButton nowrap onClick={() => setDesignConfirm(false)}>Cancel</OutlineButton>}
+            <button type="button" disabled={approvingDesign} onClick={confirmDesign} className="inline-flex shrink-0 items-center justify-center gap-2" style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '8px 14px', fontSize: 14, whiteSpace: 'nowrap', opacity: approvingDesign ? 0.4 : 1 }}>
+              {approvingDesign ? 'Approving…' : 'Approve designs'}
+            </button>
+          </div>
+        </PortalModal>
+      ) : null}
       {staff && stageMenuOpen && phoneSheet ? (
         <PortalModal
           testId="tile-stage-menu"
@@ -660,7 +754,7 @@ export function MilestoneListCard({
           showFooter={false}
           cover={cover}
         >
-          <StatusMenu current={stage.label} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={closeStageMenu} sheet />
+          <StatusMenu current={stage.label} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={closeStageMenu} buildState={buildState} sheet />
         </PortalModal>
       ) : null}
     </article>

@@ -5,10 +5,32 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { readRoadmapSource } from '../projects/roadmapSource';
 
 Object.assign(globalThis, { React });
-const { PortalModal } = await import('./PortalModal');
+const { PortalModal, openingFocus } = await import('./PortalModal');
 const PinnedModal = PortalModal as (
   props: Omit<ComponentProps<typeof PortalModal>, 'children'>,
 ) => ReactElement;
+
+describe('opening focus', () => {
+  it('opens on Cancel, then a field, then the first button', () => {
+    const base = { panel: 'panel', focusPanel: false };
+    assert.equal(openingFocus({ ...base, cancel: 'cancel', field: 'field', button: 'close' }), 'cancel');
+    assert.equal(openingFocus({ ...base, field: 'field', button: 'close' }), 'field');
+    assert.equal(openingFocus({ ...base, button: 'close' }), 'close');
+    assert.equal(openingFocus({ ...base }), null);
+  });
+
+  it('with focusPanel, a dialog with no field opens on the panel, so Close has no ring', () => {
+    const base = { panel: 'panel', focusPanel: true };
+    assert.equal(openingFocus({ ...base, button: 'close' }), 'panel');
+    assert.equal(openingFocus({ ...base, field: 'field', button: 'close' }), 'field');
+    const render = (focusPanel: boolean) =>
+      renderToStaticMarkup(createElement(PinnedModal, { label: 'Runner status', header: 'default', onClose: () => undefined, focusPanel }, createElement('p', null, 'Body')));
+    const dialog = (markup: string) => markup.match(/<div[^>]*role="dialog"[^>]*>/)?.[0] ?? '';
+    assert.match(dialog(render(true)), /tabindex="-1"/);
+    assert.match(dialog(render(true)), /outline:none/);
+    assert.equal(dialog(render(false)).includes('tabindex'), false);
+  });
+});
 
 describe('pinned modal footer', () => {
   it('keeps the footer outside the scroll region', () => {
