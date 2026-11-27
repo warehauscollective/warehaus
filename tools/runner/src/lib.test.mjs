@@ -292,8 +292,9 @@ describe('task outcome', () => {
     }
     const cli = read('./cli.mjs');
     assert.match(cli, /await waitIdle\(config, coolDown == null \? idleDelayMs\(empty\)/);
-    // The ping goes through the protocol client and carries Paused.
-    assert.match(cli, /client\(config\)\.ping\(\{ paused: control\.paused \}\)/);
+    // The ping goes through the protocol client and carries Paused, and the runs held (protocol 4 signs of life).
+    assert.match(cli, /client\(config\)\.ping\(\{ paused: control\.paused, held: heldRuns\(\) \}\)/);
+    assert.match(cli, /client\(config\)\.ping\(\{ held: heldRuns\(\) \}\)/);
   });
 
   it('idleWait runs its pings: one between slices, none after the last, failures skipped', async () => {

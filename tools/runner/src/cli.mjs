@@ -69,6 +69,12 @@ function report(type, fields = {}) {
  */
 const control = { paused: false, wake: null, changed: 0 };
 
+/**
+ * The runs in progress, sent with every ping so each gets a sign of life
+ * (protocol 4). Set once the run slots exist in main().
+ */
+let heldRuns = () => [];
+
 function listenForCommands() {
   const lines = createInterface({ input: process.stdin });
   lines.on('line', (line) => {
@@ -319,7 +325,7 @@ function waitIdle(config, ms) {
     sleep: wakeableSleep,
     // A run that ends frees a slot, so the wait ends too.
     stopped: () => control.paused !== pausedAtStart || control.changed !== changedAtStart,
-    ping: () => client(config).ping({ paused: control.paused }),
+    ping: () => client(config).ping({ paused: control.paused, held: heldRuns() }),
   });
 }
 
@@ -333,7 +339,7 @@ async function waitBusy(config, ms = HEARTBEAT_MS) {
   const pausedAtStart = control.paused;
   await wakeableSleep(ms);
   if (control.changed !== changedAtStart || control.paused !== pausedAtStart) return;
-  await client(config).ping().catch((error) => say(error.message));
+  await client(config).ping({ held: heldRuns() }).catch((error) => say(error.message));
 }
 
 /** How long a GitHub sign-in check is trusted before `gh auth status` runs again. */
@@ -459,6 +465,7 @@ async function main() {
   say(`Runner ${config.id} · ${config.mode} · ${serves} · ${new URL(config.url).hostname}`);
   report('started', { runnerId: config.id, production: config.production, paused: control.paused });
   const slots = runSlots(parsed.options.parallel);
+  heldRuns = () => slots.held();
   if (slots.size > 1) say(`Works up to ${slots.size} milestones at once`);
 
   /** One run in its own slot. It reports working and finished with its run id, then frees the slot. */

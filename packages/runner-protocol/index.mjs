@@ -46,9 +46,11 @@ export const RUNNER_PAIR_PATHS = Object.freeze({
  * `X-Runner-Protocol`. The Portal refuses claims from a registered runner
  * below `RUNNER_PROTOCOL_MIN` and shows "Runner out of date". A runner that
  * sends no header is version 1. Version 3 adds parallel runs: a claim sends
- * `slots` and the run ids it `held`s. Version 2 still works, one run at a time.
+ * `slots` and the run ids it `held`s. Version 4 adds signs of life: pings send
+ * `held` too, and the Portal stamps each held run so a run whose runner stops
+ * answering shows Stalled after 5 minutes. Version 2 still works, one run at a time.
  */
-export const RUNNER_PROTOCOL_VERSION = 3;
+export const RUNNER_PROTOCOL_VERSION = 4;
 export const RUNNER_PROTOCOL_MIN = 2;
 export const RUNNER_PROTOCOL_HEADER = 'x-runner-protocol';
 
@@ -120,7 +122,12 @@ export function runnerClient({ url, token, runnerId, fetch: fetchImpl = globalTh
         ...(held != null ? { held } : {}),
       }),
     // The runner app sends `paused` on every call so the Portal can show Paused.
-    ping: ({ paused } = {}) => post(RUNNER_PATHS.ping, paused != null ? { paused } : {}),
+    // `held` is every run in progress: each one gets a sign of life (protocol 4).
+    ping: ({ paused, held } = {}) =>
+      post(RUNNER_PATHS.ping, {
+        ...(paused != null ? { paused } : {}),
+        ...(held?.length ? { held } : {}),
+      }),
     appRelease: () => post(RUNNER_APP_RELEASE_PATH, {}),
     // The runner revoking its own registration, for Remove this runner in the app.
     unpair: () => post(RUNNER_PATHS.unpair, {}),

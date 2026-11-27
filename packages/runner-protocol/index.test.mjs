@@ -53,11 +53,16 @@ describe('runner client', () => {
     await api.claim({ mode: 'headless', repos: [], paused: true });
     await api.claim({ mode: 'headless', repos: [], slots: 3, held: ['run1'] });
     await api.ping({ paused: false });
+    await api.ping({ held: ['run1', 'run2'] });
+    await api.ping({ held: [] });
     await api.unpair();
     assert.deepEqual(seen.map((call) => [call.url, call.body]), [
       [`u${RUNNER_PATHS.claim}`, { mode: 'headless', repos: [], paused: true }],
       [`u${RUNNER_PATHS.claim}`, { mode: 'headless', repos: [], slots: 3, held: ['run1'] }],
       ['u/agent/ping', { paused: false }],
+      // Protocol 4: the runs it holds, each getting a sign of life.
+      ['u/agent/ping', { held: ['run1', 'run2'] }],
+      ['u/agent/ping', {}],
       [`u${RUNNER_PATHS.unpair}`, {}],
     ]);
   });
