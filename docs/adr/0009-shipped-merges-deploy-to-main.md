@@ -1,6 +1,6 @@
 # ADR-0009: Shipped merges, Deploy to main deploys
 
-Status: Accepted, Peter, 2026-11-27. Settled in a grilling session in Claude Code on 2026-11-27: Peter answered "yes to all" to three rounds (Q1 to Q29), then confirmed the summary with "Yes, record it". Replaces decisions 2, 3 and 12 of ADR-0007 and the Ship and deploy button; the rest of ADR-0007 is reused as noted below. Tracked in three Portal milestones (Warehaus Portal): "Preview link on the tile", "Shipped merges the pull request" and "Deploy to main". No build until his go.
+Status: Accepted, Peter, 2026-11-27. Settled in a grilling session in Claude Code on 2026-11-27: Peter answered "yes to all" to three rounds (Q1 to Q29), then confirmed the summary with "Yes, record it". Portal project decision 0027. Replaces decisions 2, 3 and 12 of ADR-0007 and the Ship and deploy button; the rest of ADR-0007 is reused as noted below. Tracked in three Portal milestones (Warehaus Portal): "Preview link on the tile", "Shipped merges the pull request" and "Deploy to main". No build until his go.
 
 ## Context
 
