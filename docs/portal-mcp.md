@@ -105,13 +105,13 @@ An approval Ask leaves the list when Peter approves or requests changes. A block
 `approve_milestone` and `request_changes` record Peter's decision on one iteration. Only the `grok-bot` token is accepted. Send the `iteration` from `get_milestone_status`. A stale iteration is rejected.
 
 - `approve_milestone` needs `status` `Ready to Ship` and a preview, local or Vercel. It keeps that status. It records the decision only. It does not merge and does not deploy.
-- `request_changes` needs `notes`. Put each change on its own line in `newTasks`. Every line becomes a review task in the milestone. Without `newTasks` the notes are split into tasks. It starts the next iteration and moves `status` back to `Building`.
+- `request_changes` needs `notes`. Put each change on its own line in `newTasks`. Every line becomes a review task in the milestone. Without `newTasks` the notes are split into tasks. It starts the next iteration and moves `status` to `Awaiting Go` (a request from the Portal UI moves it to `Building`). Decision 0018 will send both to `Building`.
 
 `record_milestone_review` is the older name for both and still works for one release. All three post to `POST /api/v1/milestones/{id}/review`.
 
 For one release the old names still work, so current bot tokens do not break:
 - `stage` is returned with the same value as `status`, and is accepted in its place.
-- `workStatus` is returned as `draft`, `active`, or `ready`, and is accepted as `Planning`, `Building`, or `Ready to Ship`.
+- `workStatus` is returned as `draft`, `active`, or `ready`, and is accepted as `Planning` or `Ready to Ship`. `active` (Building) is refused, like `status` Building.
 - If more than one of the three is sent, they must agree, or the call is a 400.
 
 Read and send `status`. The two aliases are removed in a later release.

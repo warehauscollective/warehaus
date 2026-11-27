@@ -10,16 +10,16 @@
 
 Approved by Peter in Grok Bot (Portal room), 2026-11-17, 11:46 AM ET. Canonical writeup: `AGENTS.md`. Cursor rule: `.cursor/rules/milestone-build-protocol.mdc`.
 
-- Every change belongs to a Portal milestone or a task inside one. The PR names that task.
-- Design tasks come first, in Dark and Light at 1440 and 390. Peter approves design in Grok Bot or the Portal before build. In the Portal that is the Approve designs button in the tile's Status box; it records the approval and tells the runner build can go ahead.
-- Post dev updates on the milestone (next action and the PR link).
-- A milestone has one Status (Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, Parked). Staff can set Shipped when every task that is not Parked is Done. The play button never moves to Shipped. Approval is the separate review result.
+- Every change belongs to a Portal milestone or a task inside one. One PR per milestone: it names the milestone and carries every task's commits.
+- Design tasks come first, in Dark and Light at 1440 and 390. Peter approves design in Grok Bot or the Portal before build. In the Portal that is the Approve designs button in the tile's Status box; today it records the approval and puts a line in the runner's prompt, but is not yet a gate (decision 0016).
+- Dev updates: when the runner builds, its feed events are the dev updates. An agent working outside the runner posts a milestone note with the next action and the PR link.
+- A milestone has one Status (Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, Parked). Staff can set Shipped when every task that is not Parked is Done. The play button never moves to Shipped. Awaiting Go means the plan waits for staff Go. Shipped means merged, never deployed. Approval is the separate review result.
 - Product Design Lead checks the build against Figma from screenshots, then Peter previews.
 - Two previews. Peter always approves from the local one: a build on his Mac against shared dev Convex `graceful-mastiff-960`. The Vercel branch preview is for staff only and is never the link in his approval request. Never production `unique-turtle-383`, for either.
 - On his Mac: `npm run preview:pr -- <branch>`. It prints the localhost URL, refuses a production Convex URL, and does not run `convex dev`.
 - Peter's feedback becomes iteration tasks in the same milestone.
-- Nothing merges or goes live until Peter approves in Grok Bot chat or the Portal. Peter never approves in Notion. Merging does not deploy. Production still needs his explicit "deploy main", from `main` only.
-- Exception (ADR-0007): Peter pressing Ship and deploy at Ready to Ship in the Portal is his approval, merge and "deploy main" for that milestone. Only the GitHub `ship` workflow then deploys; agents never do.
+- Nothing merges or goes live until Peter approves in Grok Bot chat or the Portal. Peter never approves in Notion, and agents record his decisions in the Portal, never in Notion. Merging does not deploy. Production still needs his explicit "deploy main", from `main` only.
+- Exception (ADR-0007, decided, not built yet): Peter pressing Ship and deploy at Ready to Ship in the Portal is his approval, merge and "deploy main" for that milestone. Only the GitHub `ship` workflow then deploys; agents never do.
 - Keep Convex usage low: indexed reads, bounded pagination, no whole-table scans, skip no-op writes, no lingering `convex dev`.
 
 Open item: shared dev still uses the production Notion token, so a local preview that writes can touch the real Warehaus Notion. The test Notion spec is coming.
