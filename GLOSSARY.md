@@ -60,7 +60,7 @@ _Avoid_: ship run, release pipeline
 
 **Deploy to main**:
 The button on a project's page that only Peter can press, after a confirm step. It deploys `main` to production, which releases every Shipped milestone not yet deployed. Next to it a counter shows how many are waiting. It shows only on a project with a deploy set up (Warehaus Portal for now). ADR-0009.
-_Avoid_: deploy button, release button, "deploy main" in chat (retired once the button is built)
+_Avoid_: deploy button, release button, "deploy main" in chat (retired 2026-11-27, when the button went live)
 
 **Deploy run**:
 One run of the GitHub workflow that Deploy to main starts: deploy Convex, then Vercel, from one `main` commit. A project has at most one at a time. A failed deploy run opens an Ask on Peter, and Retry runs it again from the same commit.
