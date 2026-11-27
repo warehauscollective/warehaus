@@ -304,6 +304,7 @@ export type RoadmapTaskInput = {
   runner?: string | null;
   commit?: string | null;
   blockedReason?: string | null;
+  nextAction?: string | null;
 };
 
 export type RoadmapChild = {
@@ -329,6 +330,8 @@ export type RoadmapChild = {
   commit?: string;
   /** Staff only. Why the runner stopped on the task. */
   blockedReason?: string;
+  /** Staff only. The task's next action. On a Blocked task it is what the task is waiting on. */
+  nextAction?: string;
   archived?: boolean;
   /** True only when this task's milestoneId is the milestone being shown. */
   onMilestone?: boolean;
@@ -371,6 +374,7 @@ function roadmapTask(
     ...(audience === 'staff' && task.runner ? { runner: task.runner } : {}),
     ...(audience === 'staff' && task.commit ? { commit: task.commit.slice(0, 7) } : {}),
     ...(audience === 'staff' && task.blockedReason ? { blockedReason: task.blockedReason } : {}),
+    ...(audience === 'staff' && task.nextAction ? { nextAction: task.nextAction } : {}),
   };
 }
 

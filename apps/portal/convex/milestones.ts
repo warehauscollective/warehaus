@@ -306,6 +306,7 @@ async function roadmapTasks(
       runner: task.claimedBy ?? null,
       commit: task.lastCommitSha ?? null,
       blockedReason: task.blockedReason ?? null,
+      nextAction: task.nextAction ?? null,
     });
   }
   return rows;
@@ -2242,6 +2243,7 @@ export const reorderTasks = adminMutation({
     const current = await tasksOnMilestone(ctx, milestone);
     const decision = reorderDecision({
       staff: true,
+      milestoneStatus: milestone.status,
       current: current.map((row) => ({ id: row._id, milestoneOrder: row.milestoneOrder })),
       taskIds: args.taskIds,
     });

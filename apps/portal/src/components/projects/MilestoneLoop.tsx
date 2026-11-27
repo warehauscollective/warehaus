@@ -11,7 +11,7 @@ import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { UPDATED_STAMP_TICK_MS, updatedStampText } from '@/lib/data/updatedStamp';
 import { feedTime } from './MilestoneRunFeed';
-import type { ChecklistActions } from './MilestoneChecklist';
+import type { MilestoneTaskActions } from './milestoneBoard';
 
 export const LOOP_AWAITING = 'Move to Awaiting Go';
 export const LOOP_TRY = 'Try again';
@@ -822,7 +822,7 @@ export function MilestoneLoopLive({
   staff: boolean;
   fixtures: boolean;
   hostSlug?: string;
-  actions?: ChecklistActions;
+  actions?: MilestoneTaskActions;
   onStatus?: (status: 'Awaiting Go') => void;
   /** Fixture capture. Set after mount from `?loop=`. */
   loopPreview?: string | null;
