@@ -59,13 +59,14 @@ Decided by Peter, 2026-11-25. Full record: `docs/adr/0006-multi-platform-portal.
 
 ### Decided, not built yet
 
-Settled with Peter in the milestone lifecycle grilling on 2026-11-26: Portal project decisions 0016 to 0026, drawn in the FigJam board Warehaus Studio, UserFlows section 4. Until each milestone below ships, the code works as described above.
+Settled with Peter in the milestone lifecycle grilling on 2026-11-26: Portal project decisions 0016 to 0026, and in the Ship and deploy grilling the same day (`docs/adr/0007-ship-and-deploy-from-the-portal.md`). Both are drawn in the FigJam board Warehaus Studio, UserFlows section 4. Until each milestone below ships, the code works as described above.
 
 - Tasks get a kind, Design or Build. On a milestone with design tasks the runner builds only design tasks until Peter approves designs, and Building shows its phase (Designs, Waiting on design approval, Build). Milestone: Design gate and task kinds.
 - On a visual milestone, a Product Design Lead check runs as a runner job at Ready to Ship; Peter's approval Ask opens on pass. Milestone: Product Design Lead check.
 - A merge ships only an approved milestone. Bots and the staff API cannot set Shipped. Milestone: Approval gates Shipped.
 - A status change has the same effects whichever path makes it, requested changes always go to Building as top-level iteration tasks, and a milestone's tasks follow its status. Milestone: Same effects on every status path.
 - Every entry into Ready to Ship starts the staff Vercel preview, and its link reaches the production milestone. Milestone: Staff preview on every Ready to Ship.
+- Ship and deploy (ADR-0007): at Ready to Ship, Peter's press of the Ship and deploy button in the Portal counts as his approval, the merge and "deploy main" for that milestone. The GitHub `ship` workflow then merges and deploys; agents still never deploy themselves. On this path only, Shipped means deployed; a merge by hand still sets Shipped and shows Not deployed. Warehaus Portal project only, until other projects have a deploy setting. Milestone: Ship and deploy.
 
 ### Convex
 
