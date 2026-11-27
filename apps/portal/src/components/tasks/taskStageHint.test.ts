@@ -14,14 +14,14 @@ describe('Ready to Ship task status', () => {
     assert.equal(displayedTaskStatus('In progress', 'Building'), 'In progress');
   });
 
-  it('uses the Portal stage hint on the task screen', () => {
+  it('keeps the Portal stage hint for the approvals preview, not the task screen', () => {
     assert.equal(TASK_STAGE_HINT, HINT);
     const source = readFileSync(new URL('./TaskDetailModal.tsx', import.meta.url), 'utf8');
-    assert.match(source, /TASK_STAGE_HINT/);
+    assert.equal(source.includes('TASK_STAGE_HINT'), false);
     assert.equal(source.includes('ON MERGE'), false);
     assert.equal(/set on merge/i.test(source), false);
     assert.equal(source.includes('task-lock.svg'), false);
-    assert.match(source, /commitShipped/);
+    assert.equal(source.includes('commitShipped'), false);
     assert.equal(source.includes('set in Notion'), false);
     assert.match(source, /displayedTaskStatus/);
   });

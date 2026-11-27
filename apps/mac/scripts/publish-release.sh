@@ -20,7 +20,7 @@ SITE="${CONVEX_SITE_URL:-https://unique-turtle-383.convex.site}"
   || { echo "Refusing to publish to $SITE: runner app releases go to production only." >&2; exit 1; }
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
-ZIP="$HERE/build/Warehaus-Runner.zip"
+ZIP="$HERE/build/Warehaus-Portal.zip"
 META="$HERE/build/release.json"
 [[ -f "$ZIP" && -f "$META" ]] || { echo "Run scripts/build-release.sh (with notarization) first." >&2; exit 1; }
 

@@ -5,7 +5,7 @@ import RunnerSupervisor
 /// The four approved menu states from fixture data, for SwiftUI previews and
 /// for a debug run with no runner paired:
 ///
-///     -RunnerFixture ready | working | paused | attention
+///     -RunnerFixture ready | working | working-several | paused | attention
 ///
 /// Pause and Resume work on the fixture so the states can be clicked through.
 @MainActor
@@ -29,6 +29,14 @@ public final class FixtureControl: RunnerControl {
             return base
         case "working":
             base.activity = .working(WorkInfo(kind: .task, milestoneId: "fixture-milestone", milestone: "Client experience launch", taskOrder: 3, task: "Hero"))
+            return base
+        case "working-several":
+            base.runs = [
+                WorkInfo(runId: "r1", kind: .task, milestoneId: "fixture-milestone", milestone: "Client experience launch", taskOrder: 3, task: "Hero"),
+                WorkInfo(runId: "r2", kind: .planning, milestoneId: "fixture-milestone-2", milestone: "Double booking awareness"),
+                WorkInfo(runId: "r3", kind: .task, milestoneId: "fixture-milestone-3", milestone: "Figma status picker", taskOrder: 1, task: "Picker"),
+            ]
+            base.activity = .working(base.runs[0])
             return base
         case "paused":
             base.activity = .paused

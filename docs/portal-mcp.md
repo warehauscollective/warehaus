@@ -60,7 +60,7 @@ A milestone has one field, `status`: `Idea`, `Planning`, `Awaiting Go`, `Buildin
 
 `update_milestone` (`POST /api/v1/milestones/update`) sends only the fields that change, including Shipped when every task that is not Parked is Done. `create_milestone` cannot start a milestone at Shipped.
 
-A task only exists inside a milestone. `create_task` and `POST /api/v1/tasks` need `milestoneId`. A missing milestone, a milestone on another project, and a `Shipped` milestone are each a 400.
+A task only exists inside a milestone. `create_task` and `POST /api/v1/tasks` need `milestoneId`. A missing milestone, a milestone on another project, and a `Shipped` milestone are each a 400. The task is stored in the Portal only (no Notion page, no outbox row), so it is on the milestone at once, and the response carries its `id`.
 
 To start new work, create the milestone and its task list in one call:
 
@@ -75,7 +75,30 @@ To start new work, create the milestone and its task list in one call:
 
 `add_note` (`POST /api/v1/milestones/note`) adds a staff note. Notes are staff only. A note changes no status, approval or task.
 
-`list_needs_peter` (`GET /api/v1/milestones/needs-peter`) lists what is waiting on Peter, newest first, at most 20. There are two kinds. `approval`: a milestone reached Ready to Ship. The note has the pull request, the local preview command and link, and the approval line. `blocked`: a runner stopped on a task. The note has the task and the reason. An approval note leaves the list when Peter approves or requests changes. A blocked note leaves when that task is done. The Portal does not message Grok Bot. Grok Bot reads this list.
+## Asks
+
+An Ask is a milestone note that waits on one named staff member (see `GLOSSARY.md`). The Portal shows it as Needs you. There are two kinds:
+
+- `approval`: a milestone reached Ready to Ship. The note has the pull request, the local preview command and link, and the approval line. Approval Asks wait on Peter, the only approver.
+- `blocked`: a runner stopped on a task. The note has the task and the reason. Blocked Asks wait on Peter until milestones or tasks have an owner.
+
+`list_asks` (`GET /api/v1/milestones/asks`) lists the open Asks, newest first, at most 20.
+
+- `person` is optional. Leave it out to list every open Ask. Send it to list only the Asks waiting on one staff member. Over HTTP it is the query parameter `?person=`.
+- `person` is `peter`, a staff email, or a staff contact id. The contact id is the `waitingOn.id` an earlier item returned.
+- A `person` that matches no staff member is a 404, `No staff member matches that person`. It is not an empty list, so a typo does not read as "nothing is waiting".
+- Each item has `id`, `milestoneId`, `milestoneName`, `projectId`, `reason` (`approval` or `blocked`), `waitingOn` (`{ id, name }`, or `null` when it waits on no one), `body`, `status`, `iteration` and `createdAt`.
+
+An approval Ask leaves the list when Peter approves or requests changes. A blocked Ask leaves when that task is done. The Portal does not message Grok Bot. Grok Bot reads this list and raises each Ask with the person it waits on.
+
+### For Grok Bot owners: `list_needs_peter` is now `list_asks`
+
+`list_needs_peter` (`GET /api/v1/milestones/needs-peter`) is the old name. It still answers for one release, then it is removed.
+
+- Change the bot to call `list_asks` with `person` set to `peter`. That is the same list the old tool gave.
+- To raise Asks with other staff too, call `list_asks` with no `person` and read `waitingOn` on each item.
+- The old tool takes no arguments and returns the Asks waiting on Peter, in the same shape as `list_asks`. `waitingOn` is new on each item; the other fields are unchanged.
+- No new token is needed. Both tools are reads.
 
 ## Review
 

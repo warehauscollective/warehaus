@@ -17,6 +17,7 @@ import {
   RUN_ENDED,
   RUN_NOT_FOUND,
   RUN_NOT_YOURS,
+  RELEASE_KIND_INVALID,
   agentRepo,
   blockedNote,
   buildAgent,
@@ -34,6 +35,7 @@ import {
   planningRetryDecision,
   projectServedBy,
   pullRequestUrl,
+  releaseReason,
   retryLeaseDecision,
   runnerRepos,
   runIsStuck,
@@ -45,7 +47,13 @@ import {
   STUCK_RUN_SCAN,
   taskRetryDecision,
   trimEventPayload,
+  heldRunIds,
+  openRunDecision,
+  RUNNER_BUSY,
+  RUNNER_MAX_SLOTS,
+  runnerSlots,
 } from './_lib/agentRun';
+import { closeAsk, closeAsksOnMilestone, openAsk, openAsks, openAsksOnMilestone, type AskReason } from './_lib/askStore';
 import { proposedTasksDecision } from './_lib/milestoneBot';
 import { changeMilestoneStatus } from './_lib/milestoneLifecycle';
 import type { MilestoneStatus } from './_lib/milestoneStatus';
@@ -108,39 +116,17 @@ export async function writeEvent(
   });
 }
 
-/** Leaves one open note for Peter. Read by Grok Bot through the staff API. */
-async function needsPeter(
-  ctx: MutationCtx,
-  milestone: Doc<'milestones'>,
-  input: { reason: 'approval' | 'blocked'; body: string; taskId?: Id<'tasks'>; addedBy: string; at: number },
-) {
-  await ctx.db.insert('milestoneNotes', {
-    orgId: milestone.orgId,
-    milestoneId: milestone._id,
-    body: input.body,
-    addedBy: input.addedBy,
-    createdAt: input.at,
-    needsPeter: 'open',
-    reason: input.reason,
-    ...(input.taskId ? { taskId: input.taskId } : {}),
-  });
-}
-
-/** Closes open notes on a milestone. With a task, only that task's blocked note. */
+/** Closes open Asks on a milestone. With a task, only that task's blocked Ask. */
 async function answerNotes(
   ctx: MutationCtx,
   milestoneId: Id<'milestones'>,
-  match: { reason: 'approval' | 'blocked'; taskId?: Id<'tasks'> },
+  match: { reason: AskReason; taskId?: Id<'tasks'> },
 ) {
-  const open = await ctx.db
-    .query('milestoneNotes')
-    .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestoneId).eq('needsPeter', 'open'))
-    .take(20);
-  for (const note of open) {
-    if (note.reason !== match.reason) continue;
-    if (match.taskId && note.taskId !== match.taskId) continue;
-    await ctx.db.patch(note._id, { needsPeter: undefined });
-  }
+  await closeAsksOnMilestone(
+    ctx,
+    milestoneId,
+    (ask) => ask.reason === match.reason && (!match.taskId || ask.taskId === match.taskId),
+  );
 }
 
 export const TOO_MANY_TASKS_NOTE = 'This milestone has too many tasks to check. Close or split some.';
@@ -154,17 +140,14 @@ async function tooManyTasksNote(
   milestone: Doc<'milestones'>,
   input: { open: true; addedBy: string; at: number } | { open: false },
 ) {
-  const notes = await ctx.db
-    .query('milestoneNotes')
-    .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestone._id).eq('needsPeter', 'open'))
-    .take(20);
+  const notes = await openAsksOnMilestone(ctx, milestone._id);
   const existing = notes.filter((note) => note.reason === 'blocked' && note.body === TOO_MANY_TASKS_NOTE);
   if (!input.open) {
-    for (const note of existing) await ctx.db.patch(note._id, { needsPeter: undefined });
+    for (const note of existing) await closeAsk(ctx, note);
     return;
   }
   if (existing.length > 0) return;
-  await needsPeter(ctx, milestone, { reason: 'blocked', body: TOO_MANY_TASKS_NOTE, addedBy: input.addedBy, at: input.at });
+  await openAsk(ctx, milestone, { reason: 'blocked', body: TOO_MANY_TASKS_NOTE, addedBy: input.addedBy, at: input.at });
 }
 
 /** The first open tasks a person has to close, from the whole task set. */
@@ -268,11 +251,12 @@ export const touchRunner = internalMutation({
   },
 });
 
-async function runningRunFor(ctx: MutationCtx, runnerId: string) {
+/** The runner's open runs, oldest first. Capped: a runner holds at most RUNNER_MAX_SLOTS. */
+async function runningRunsFor(ctx: MutationCtx, runnerId: string) {
   return ctx.db
     .query('agentRuns')
     .withIndex('by_runner_status', (q) => q.eq('runnerId', runnerId).eq('status', 'running'))
-    .first();
+    .take(RUNNER_MAX_SLOTS * 2);
 }
 
 /** Marks an ended run as settled: the runner answered for it. Writes once. */
@@ -285,19 +269,19 @@ async function settleRun(ctx: MutationCtx, run: Doc<'agentRuns'>, at: number) {
 const SETTLE_SCAN = 5;
 
 /**
- * A runner that asks for work with no run open is not working. Any task or
- * planning run the stuck sweep closed under it is over, so its hold on the
- * milestone ends here. A Cursor build is left alone: its agent runs in the
- * cloud whether or not the runner is busy.
+ * A runner that asks for work says which runs it is still working on. Any
+ * task or planning run the stuck sweep closed under it that it does not list
+ * is over, so its hold on the milestone ends here. A Cursor build is left
+ * alone: its agent runs in the cloud whether or not the runner is busy.
  */
-async function settleIdleRunner(ctx: MutationCtx, runnerId: string, at: number) {
+async function settleIdleRunner(ctx: MutationCtx, runnerId: string, held: ReadonlySet<string>, at: number) {
   const closed = await ctx.db
     .query('agentRuns')
     .withIndex('by_runner_status', (q) => q.eq('runnerId', runnerId).eq('status', 'cancelled'))
     .order('desc')
     .take(SETTLE_SCAN);
   for (const run of closed) {
-    if (run.kind !== 'build') await settleRun(ctx, run, at);
+    if (run.kind !== 'build' && !held.has(run._id)) await settleRun(ctx, run, at);
   }
 }
 
@@ -356,8 +340,9 @@ function buildTaskPayload({ doc: task }: LoadedTask) {
 /**
  * Hands the runner its next piece of work in one transaction: a planning job
  * first, else the lowest-order To do task on the oldest Building milestone.
- * A runner with a run still open gets that same run back, so a repeated call
- * never claims twice.
+ * A runner works up to `slots` runs at once, each on a different milestone,
+ * and lists the runs it holds. An open run it does not list comes back to it,
+ * so a repeated call never claims twice.
  */
 export const claimNext = internalMutation({
   args: {
@@ -371,9 +356,15 @@ export const claimNext = internalMutation({
      * names one (ADR-0005 amendment). It still gets nothing for a project with none.
      */
     anyRepo: v.optional(v.boolean()),
+    /** Run slots: how many runs the runner works at once, one per milestone (1 to RUNNER_MAX_SLOTS). */
+    slots: v.optional(v.number()),
+    /** The run ids the runner is working on now. */
+    held: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const repos = runnerRepos(args.repos);
+    const slots = runnerSlots(args.slots);
+    const held = heldRunIds(args.held);
     const anyRepo = args.anyRepo === true && repos.length === 0;
     // Fail safe: a runner that names no repository, and is not registered, is handed nothing.
     if (repos.length === 0 && !anyRepo) return { ok: true as const, resumed: false, kind: 'none' as const, reason: RUNNER_NEEDS_REPO };
@@ -381,16 +372,19 @@ export const claimNext = internalMutation({
       const project = await ctx.db.get(projectId);
       return anyRepo ? agentRepo(project?.agentRepo) != null : projectServedBy(project, repos);
     };
-    const open = await runningRunFor(ctx, args.runnerId);
-    if (open) {
-      const payload = await runPayload(ctx, open);
+    const open = await runningRunsFor(ctx, args.runnerId);
+    const decision = openRunDecision({ open: open.map((run) => run._id), held, slots });
+    const lost = decision.resume ? open.find((run) => run._id === decision.resume) : undefined;
+    if (lost) {
+      const payload = await runPayload(ctx, lost);
       if (payload) return { ok: true as const, resumed: true, ...payload };
       // The task or milestone behind the run is gone. Close it and look again.
       const closedAt = Date.now();
-      await ctx.db.patch(open._id, { status: 'cancelled', endedAt: closedAt, settledAt: closedAt });
+      await ctx.db.patch(lost._id, { status: 'cancelled', endedAt: closedAt, settledAt: closedAt });
     }
     const now = Date.now();
-    await settleIdleRunner(ctx, args.runnerId, now);
+    await settleIdleRunner(ctx, args.runnerId, new Set(held), now);
+    if (decision.full) return { ok: true as const, resumed: false, kind: 'none' as const, reason: RUNNER_BUSY };
     const mode = runMode(args.mode);
 
     const inspected = new Map<string, number>();
@@ -672,7 +666,7 @@ export const completeTask = internalMutation({
     });
 
     if (decision.task.status === 'Blocked') {
-      await needsPeter(ctx, milestone, {
+      await openAsk(ctx, milestone, {
         reason: 'blocked',
         taskId: task._id,
         addedBy: `runner:${args.runnerId}`,
@@ -813,7 +807,7 @@ export const writePlannedTasks = internalMutation({
 
 /**
  * Ends a planning run that wrote nothing. The planning job is blocked with its
- * reason and leaves a "needs Peter" note; staff press Retry to queue it again.
+ * reason and leaves an Ask waiting on Peter; staff press Retry to queue it again.
  * It is not put straight back in the queue (ADR-0001, amendment 2026-11-22).
  */
 export const failPlanning = internalMutation({
@@ -834,7 +828,7 @@ export const failPlanning = internalMutation({
     const milestone = await ctx.db.get(run.milestoneId);
     if (milestone?.planning === 'running') {
       await ctx.db.patch(milestone._id, { planning: 'blocked', planningBlockedReason: why, loopChangedAt: now });
-      await needsPeter(ctx, milestone, {
+      await openAsk(ctx, milestone, {
         reason: 'blocked',
         addedBy: `runner:${args.runnerId}`,
         at: now,
@@ -847,6 +841,57 @@ export const failPlanning = internalMutation({
       runId: run._id,
       type: 'failed',
       summary: `Planning run stopped · ${why}`,
+      at: now,
+    });
+    return { ok: true as const, duplicate: false };
+  },
+});
+
+/**
+ * The runner hands a run back untouched, because Claude hit the account usage
+ * limit. The run is cancelled and settled, so it holds nothing. A task goes
+ * back to To do and a plan back to the queue, with no Ask: the
+ * runner takes new work again once the limit resets. Idempotent on the run.
+ */
+export const releaseRun = internalMutation({
+  args: { runnerId: v.string(), runId: v.string(), reason: v.optional(v.any()) },
+  handler: async (ctx, args) => {
+    const owned = await ownedRun(ctx, args.runnerId, args.runId);
+    if (!owned.ok) return owned;
+    const { run } = owned;
+    if (run.kind !== 'task' && run.kind !== 'planning') return failure(400, RELEASE_KIND_INVALID);
+    if (run.status !== 'running') {
+      await settleRun(ctx, run, Date.now());
+      return { ok: true as const, duplicate: true };
+    }
+    const now = Date.now();
+    const why = releaseReason(args.reason);
+    await ctx.db.patch(run._id, { status: 'cancelled', endedAt: now, settledAt: now, blockedReason: why });
+    const milestone = await ctx.db.get(run.milestoneId);
+    let summary = `Run handed back · ${why}`;
+    if (run.kind === 'task' && run.taskId) {
+      const task = await ctx.db.get(run.taskId);
+      if (task && !task.isDone && task.claimedBy === args.runnerId) {
+        await ctx.db.patch(task._id, {
+          status: 'To Do',
+          isDone: false,
+          claimedBy: undefined,
+          claimedAt: undefined,
+          blockedReason: undefined,
+          updatedAt: now,
+        });
+      }
+      if (task) summary = `Task ${String((task.milestoneOrder ?? 0) + 1).padStart(2, '0')} went back to To do · ${why}`;
+    } else if (run.kind === 'planning') {
+      if (milestone?.planning === 'running') await ctx.db.patch(milestone._id, { planning: 'queued', loopChangedAt: now });
+      summary = `Planning went back to the queue · ${why}`;
+    }
+    await writeEvent(ctx, {
+      orgId: run.orgId,
+      milestoneId: run.milestoneId,
+      runId: run._id,
+      type: 'note',
+      summary,
       at: now,
     });
     return { ok: true as const, duplicate: false };
@@ -875,7 +920,7 @@ export const releaseStuckRuns = internalMutation({
         .withIndex('by_runnerId', (q) => q.eq('runnerId', run.runnerId))
         .unique();
       if (run.kind === 'build' && cursorBuildTooLong({ agentStartedAt: run.agentStartedAt, startedAt: run.startedAt, now })) {
-        // One Cursor agent per milestone, and none past 2 hours: blocked with a "needs Peter" note.
+        // One Cursor agent per milestone, and none past 2 hours: blocked with an Ask waiting on Peter.
         const long = await ctx.db.get(run.milestoneId);
         if (long) {
           await blockCursorBuild(ctx, run, long, run.runnerId, CURSOR_BUILD_TOO_LONG, now, false);
@@ -904,7 +949,7 @@ export const releaseStuckRuns = internalMutation({
           });
           if (milestone) {
             const order = String((task.milestoneOrder ?? 0) + 1).padStart(2, '0');
-            await needsPeter(ctx, milestone, {
+            await openAsk(ctx, milestone, {
               reason: 'blocked',
               taskId: task._id,
               addedBy: `runner:${run.runnerId}`,
@@ -921,7 +966,7 @@ export const releaseStuckRuns = internalMutation({
         }
       } else if (milestone?.planning === 'running') {
         await ctx.db.patch(milestone._id, { planning: 'blocked', planningBlockedReason: why, loopChangedAt: now });
-        await needsPeter(ctx, milestone, {
+        await openAsk(ctx, milestone, {
           reason: 'blocked',
           addedBy: `runner:${run.runnerId}`,
           at: now,
@@ -955,10 +1000,7 @@ export const releaseStuckRuns = internalMutation({
 async function noteMissingRunner(ctx: MutationCtx, now: number) {
   const runners = await registeredRunners(ctx);
   const online = anyRunnerOnline(runners, now, RUNNER_READY_WITHIN_MS);
-  const open = await ctx.db
-    .query('milestoneNotes')
-    .withIndex('by_needsPeter', (q) => q.eq('needsPeter', 'open'))
-    .take(NO_RUNNER_NOTE_SCAN);
+  const open = await openAsks(ctx, { limit: NO_RUNNER_NOTE_SCAN });
   const noted = new Map<string, Doc<'milestoneNotes'>>();
   for (const note of open) if (note.reason === 'blocked' && isNoRunnerNote(note.body)) noted.set(note.milestoneId, note);
   let closed = 0;
@@ -966,7 +1008,7 @@ async function noteMissingRunner(ctx: MutationCtx, now: number) {
   for (const note of noted.values()) {
     const milestone = online ? null : await ctx.db.get(note.milestoneId);
     if (!online && milestone?.status === 'Building' && milestone.archivedAt == null) continue;
-    await ctx.db.patch(note._id, { needsPeter: undefined });
+    await closeAsk(ctx, note);
     closed += 1;
   }
   if (online) return { noRunnerOpened: opened, noRunnerClosed: closed };
@@ -985,7 +1027,7 @@ async function noteMissingRunner(ctx: MutationCtx, now: number) {
       now,
     });
     if (!body) continue;
-    await needsPeter(ctx, milestone, { reason: 'blocked', body, addedBy: 'portal', at: now });
+    await openAsk(ctx, milestone, { reason: 'blocked', body, addedBy: 'portal', at: now });
     opened += 1;
   }
   return { noRunnerOpened: opened, noRunnerClosed: closed };
@@ -1020,12 +1062,9 @@ async function noteBlockedBuild(
   milestone: Doc<'milestones'>,
   input: { runnerId: string; at: number; body: string },
 ) {
-  const open = await ctx.db
-    .query('milestoneNotes')
-    .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestone._id).eq('needsPeter', 'open'))
-    .take(20);
+  const open = await openAsksOnMilestone(ctx, milestone._id);
   if (open.some((note) => note.reason === 'blocked' && !note.taskId)) return;
-  await needsPeter(ctx, milestone, {
+  await openAsk(ctx, milestone, {
     reason: 'blocked',
     addedBy: `runner:${input.runnerId}`,
     at: input.at,
@@ -1240,13 +1279,7 @@ export async function retryBlockedWork(
         updatedAt: now,
       });
     }
-    const open = await ctx.db
-      .query('milestoneNotes')
-      .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestone._id).eq('needsPeter', 'open'))
-      .take(20);
-    for (const note of open) {
-      if (note.reason === 'blocked' && !note.taskId) await ctx.db.patch(note._id, { needsPeter: undefined });
-    }
+    await closeAsksOnMilestone(ctx, milestone._id, (ask) => ask.reason === 'blocked' && !ask.taskId);
     return { ok: true };
   }
   if (args.taskId) return { ok: true };
@@ -1257,13 +1290,7 @@ export async function retryBlockedWork(
   });
   if (!decision.ok) return failure(400, decision.reason);
   await ctx.db.patch(milestone._id, { planning: 'queued', planningBlockedReason: undefined, loopChangedAt: now });
-  const open = await ctx.db
-    .query('milestoneNotes')
-    .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestone._id).eq('needsPeter', 'open'))
-    .take(20);
-  for (const note of open) {
-    if (note.reason === 'blocked' && !note.taskId) await ctx.db.patch(note._id, { needsPeter: undefined });
-  }
+  await closeAsksOnMilestone(ctx, milestone._id, (ask) => ask.reason === 'blocked' && !ask.taskId);
   return { ok: true };
 }
 

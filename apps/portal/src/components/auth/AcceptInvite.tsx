@@ -22,6 +22,7 @@ import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { rememberStaffJoined } from '@/lib/staffJoined';
 import { useStaffLinkWait } from '@/lib/staffLinkWait';
 import { StaffLinkFinish } from '@/components/auth/StaffLinkFinish';
+import { PasswordInput } from '@/components/ui/PasswordInput';
 
 type Preview = {
   status:
@@ -772,8 +773,7 @@ function Field({ label, value, onChange, error }: { label: string; value: string
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <span style={fieldLabel}>{label}</span>
-      <input
-        type="password"
+      <PasswordInput
         value={value}
         aria-invalid={error ? true : undefined}
         onChange={(event) => onChange(event.target.value)}

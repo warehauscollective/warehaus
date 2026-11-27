@@ -81,6 +81,19 @@ public struct MenuState: Equatable, Sendable {
         }
         switch snapshot.activity {
         case let .working(work):
+            let runs = snapshot.runs.isEmpty ? [work] : snapshot.runs
+            if runs.count > 1 {
+                // Several milestones at once: one line each, and Pause waits for all of them.
+                let pause = pauseRequested
+                    ? MenuItem("Keep working after these runs", .cancelPauseAfterRun)
+                    : MenuItem("Pause after these runs", .pauseAfterRun)
+                return MenuState(
+                    status: .working,
+                    lines: runLines(runs) + [pauseRequested ? "Pauses when these runs end" : "Keeping this Mac awake until the runs end"],
+                    primary: [pause, MenuItem("Open Portal", .openPortal)],
+                    updateWaitsForRun: true
+                )
+            }
             let portal = work.milestoneId.map { MenuItem("Open milestone in Portal", .openMilestone($0)) }
                 ?? MenuItem("Open Portal", .openPortal)
             let pause = pauseRequested
@@ -118,6 +131,11 @@ public struct MenuState: Equatable, Sendable {
         let deployment = snapshot.production ? "Production" : "Shared dev"
         guard let id = snapshot.runnerId else { return deployment }
         return "\(id) · \(deployment)"
+    }
+
+    /// "3 runs in progress", then one line per run (at most four: the runner's slots).
+    static func runLines(_ runs: [WorkInfo]) -> [String] {
+        ["\(runs.count) runs in progress"] + runs.map(workLine)
     }
 
     /// "Client experience launch · task 3". The claim carries the task's place, not the milestone's count.

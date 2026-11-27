@@ -1,4 +1,5 @@
 import AppKit
+import NotificationRouting
 import Foundation
 import ServiceManagement
 import UserNotifications
@@ -60,6 +61,8 @@ public protocol AttentionNotifying {
 }
 
 public final class SystemNotifier: AttentionNotifying {
+    /// The notification router's source for the runner's act-only notifications.
+    public static let source = "runner"
     private var asked = false
 
     public init() {}
@@ -72,6 +75,7 @@ public final class SystemNotifier: AttentionNotifying {
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
+            content.userInfo = [NotificationRouter.sourceKey: Self.source]
             center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
         }
         if asked { return post() }
@@ -80,35 +84,6 @@ public final class SystemNotifier: AttentionNotifying {
             if granted { post() }
         }
     }
-}
-
-// MARK: - Updates (stub until the self-update task)
-
-public enum UpdateStatus: Equatable, Sendable {
-    case upToDate(version: String)
-    case available(version: String)
-    case checking(version: String)
-}
-
-/// The update line and Check for update. The self-update task replaces the
-/// stub with a real check against `/agent/app-release` that installs between runs.
-@MainActor
-public protocol UpdateChecking {
-    var status: UpdateStatus { get }
-    func checkNow() async -> UpdateStatus
-}
-
-@MainActor
-public final class StubUpdateChecker: UpdateChecking {
-    public let version: String
-
-    public init(version: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev") {
-        self.version = version
-    }
-
-    public var status: UpdateStatus { .upToDate(version: version) }
-
-    public func checkNow() async -> UpdateStatus { .upToDate(version: version) }
 }
 
 // MARK: - Set-up

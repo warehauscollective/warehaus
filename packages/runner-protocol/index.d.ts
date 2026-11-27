@@ -3,9 +3,10 @@ export declare const RUNNER_PATHS: Readonly<{
   events: '/agent/events';
   tasks: '/agent/tasks';
   complete: '/agent/complete';
+  release: '/agent/release';
   build: '/agent/build';
-  unpair: '/agent/unpair';
   ping: '/agent/ping';
+  unpair: '/agent/unpair';
 }>;
 export declare const RUNNER_APP_RELEASE_PATH: '/agent/app-release';
 export declare const RUNNER_PAIR_QUERY: 'runnerPair';
@@ -26,10 +27,10 @@ export declare function isMilestoneBranch(value: unknown): value is string;
 
 export type RunnerClient = {
   post(path: string, body: unknown): Promise<Record<string, unknown>>;
-  claim(input: { mode: string; repos: string[]; paused?: boolean }): Promise<Record<string, unknown>>;
+  claim(input: { mode: string; repos: string[]; paused?: boolean; slots?: number; held?: string[] }): Promise<Record<string, unknown>>;
   ping(input?: { paused?: boolean }): Promise<Record<string, unknown>>;
-  unpair(): Promise<Record<string, unknown>>;
   appRelease(): Promise<Record<string, unknown>>;
+  unpair(): Promise<Record<string, unknown>>;
   event(input: { runId: string; type: string; summary: string }): Promise<Record<string, unknown>>;
   writeTasks(input: { runId: string; tasks: Array<{ title: string; detail?: string }> }): Promise<Record<string, unknown>>;
   completeTask(input: {
@@ -40,6 +41,7 @@ export type RunnerClient = {
     prUrl?: string;
   }): Promise<Record<string, unknown>>;
   failPlanning(input: { runId: string; reason: string }): Promise<Record<string, unknown>>;
+  release(input: { runId: string; reason?: string; until?: number }): Promise<Record<string, unknown>>;
   reportBuild(body: Record<string, unknown>): Promise<Record<string, unknown>>;
 };
 

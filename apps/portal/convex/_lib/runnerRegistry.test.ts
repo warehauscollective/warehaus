@@ -285,7 +285,7 @@ describe('who can pair and revoke', () => {
 describe('no runner alerts', () => {
   type Sweep = { noRunnerOpened: number; noRunnerClosed: number };
   const openNotes = (t: MemoryCtx, milestoneId: string) =>
-    t.rows('milestoneNotes').filter((note) => note.milestoneId === milestoneId && note.needsPeter === 'open');
+    t.rows('milestoneNotes').filter((note) => note.milestoneId === milestoneId && note.open === true);
 
   it('picks the note from whether any runner is set up, and waits 30 minutes', () => {
     const base = { online: false, registeredCount: 0, hasRepo: true, buildingSince: 0, now: NO_RUNNER_AFTER_MS };

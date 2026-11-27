@@ -13,8 +13,10 @@ import {
   RunnerSetupBody,
   RunnerStatusBody,
   RunnerStatusChip,
+  runnerChipExpanded,
   runnerFixtureState,
   runnerHealthFixture,
+  runnerIdPrefill,
   runnerModalStep,
 } from './RunnerStatus';
 
@@ -98,11 +100,11 @@ describe('runner status modal body', () => {
     );
     assert.equal(
       text(body('offline')),
-      "Runner offline RUNNER peter-mbp-prod LAST SEEN 2h ago MILESTONE — ON THE MAC Open Warehaus Runner from Applications No runner serving this repository has been seen in the last 10 minutes. The runner app starts at login, so check the Mac is on and open Warehaus Runner if it was quit. Moving a milestone to Building won't start an agent until one is running.",
+      "Runner offline RUNNER peter-mbp-prod LAST SEEN 2h ago MILESTONE — ON THE MAC Open Warehaus Portal from Applications No runner serving this repository has been seen in the last 10 minutes. The runner app starts at login, so check the Mac is on and open Warehaus Portal if it was quit. Moving a milestone to Building won't start an agent until one is running.",
     );
     assert.equal(
       text(body('offline-building')),
-      'Runner offline RUNNER peter-mbp-prod LAST SEEN 2h ago MILESTONE Client experience launch ON THE MAC Open Warehaus Runner from Applications Client experience launch is Building and waiting for the runner. Open Warehaus Runner on the Mac to pick the milestone up.',
+      'Runner offline RUNNER peter-mbp-prod LAST SEEN 2h ago MILESTONE Client experience launch ON THE MAC Open Warehaus Portal from Applications Client experience launch is Building and waiting for the runner. Open Warehaus Portal on the Mac to pick the milestone up.',
     );
     assert.equal(
       text(body('no-repo')),
@@ -179,6 +181,31 @@ describe('runner set-up states', () => {
     );
   });
 
+  it('says why Confirm is disabled, and stops once it is not', () => {
+    const confirm = (runnerId: string) =>
+      renderToStaticMarkup(createElement(RunnerConfirmBody, { code: 'K7QM-4XPA', production: true, runnerId, onRunnerId: noop, onCancel: noop, onConfirm: noop }));
+    assert.match(confirm('  '), /aria-describedby="runner-confirm-hint"/);
+    assert.match(text(confirm('  ')), /Confirm and pair Enter a runner id to pair\.$/);
+    assert.doesNotMatch(confirm('peter-mbp-prod'), /runner-disabled-hint/);
+  });
+
+  it('fills the proposed runner id once for a code, so a cleared field stays cleared', () => {
+    const found = { code: 'K7QM-4XPA', proposedRunnerId: 'peter-mbp-prod' };
+    assert.equal(runnerIdPrefill({ step: 'confirm', found, filledFor: null }), 'peter-mbp-prod');
+    assert.equal(runnerIdPrefill({ step: 'confirm', found, filledFor: 'K7QM-4XPA' }), null);
+    assert.equal(runnerIdPrefill({ step: 'confirm', found: { code: 'ZZZZ-9999', proposedRunnerId: 'studio-mini-prod' }, filledFor: 'K7QM-4XPA' }), 'studio-mini-prod');
+    assert.equal(runnerIdPrefill({ step: 'confirm', found: undefined, filledFor: null }), null);
+    assert.equal(runnerIdPrefill({ step: 'setup', found, filledFor: null }), null);
+  });
+
+  it('draws the pairing inputs as the Figma Input: surface-2, a 2px ring border, 16 radius, 14/21', () => {
+    const download = { url: 'https://example.convex.cloud/app.zip', version: '1.0.0' };
+    const input = renderToStaticMarkup(createElement(RunnerSetupBody, { download, code: '', onCode: noop, onPair: noop })).match(/<input[^>]*>/)?.[0] ?? '';
+    for (const rule of ['padding:10px 12px', 'border-radius:16px', 'border:2px solid var(--ring)', 'background:var(--surface-2)', 'font-size:14px', 'line-height:21px']) {
+      assert.ok(input.includes(rule), rule);
+    }
+  });
+
   it('shows no terminal command anywhere in the runner UI', () => {
     for (const file of ['./RunnerStatus.tsx', './RunnerPairLink.tsx']) {
       assert.doesNotMatch(readFileSync(new URL(file, import.meta.url), 'utf8'), /npm run|git pull|terminal command/, file);
@@ -188,20 +215,32 @@ describe('runner set-up states', () => {
   it('lists registered runners with Revoke, and asks before revoking the last one', () => {
     assert.equal(
       html(createElement(RunnerListBody, { copy, runners: view.runners, production: true, now: NOW, onRevoke: noop, onPairAnother: noop })),
-      'Runner ready RUNNERS ON PRODUCTION 2 registered peter-mbp-prod SEEN 4M AGO Revoke studio-mini-prod SEEN 3D AGO Revoke Revoking a runner stops it taking work at once. Any run in progress goes back to the queue. Pair another runner',
+      'Runner ready RUNNERS ON PRODUCTION 2 registered peter-mbp-prod SEEN 4 MIN AGO Revoke studio-mini-prod SEEN 3 DAYS AGO Revoke Revoking a runner stops it taking work at once. Any run in progress goes back to the queue. Pair another runner',
     );
     const runner = view.runners[0]!;
     assert.equal(
       html(createElement(RunnerRevokeBody, { runner, now: NOW, lastRunner: true, production: true, onCancel: noop, onRevoke: noop })),
-      'Revoke peter-mbp-prod? RUNNER peter-mbp-prod LAST SEEN 4m ago It stops taking work at once, and any run in progress goes back to the queue. This is the last production runner, so production milestones wait until another is paired. Cancel Revoke runner',
+      'Revoke peter-mbp-prod? RUNNER peter-mbp-prod LAST SEEN 4 min ago It stops taking work at once, and any run in progress goes back to the queue. This is the last production runner, so production milestones wait until another is paired. Cancel Revoke runner',
     );
+  });
+
+  it('colors the heading dots as Figma: muted on Confirm, amber ring with a danger core on Revoke', () => {
+    const heading = (markup: string) => markup.match(/<svg[^>]*data-runner-dot[^>]*>.*?<\/svg>/)?.[0] ?? '';
+    const confirm = heading(renderToStaticMarkup(createElement(RunnerConfirmBody, { code: 'K7QM-4XPA', production: true, runnerId: 'peter-mbp-prod', onRunnerId: noop, onCancel: noop, onConfirm: noop })));
+    assert.match(confirm, /data-runner-dot="offline"/);
+    assert.match(confirm, /color:var\(--muted\)/);
+    assert.match(confirm, /r="4" fill="currentColor"/);
+    const revoke = heading(renderToStaticMarkup(createElement(RunnerRevokeBody, { runner: view.runners[0]!, now: NOW, lastRunner: true, production: true, onCancel: noop, onRevoke: noop })));
+    assert.match(revoke, /color:var\(--warning\)/);
+    assert.match(revoke, /stroke="currentColor"/);
+    assert.match(revoke, /r="4" fill="var\(--danger, #e5484d\)"/);
   });
 
   it('says a runner is out of date and that the app updates itself', () => {
     const old = { ...view, protocolMin: 4, runners: [{ ...view.runners[0]!, protocolVersion: 3 }] };
     assert.equal(
       html(createElement(RunnerOutOfDateBody, { view: old, now: NOW })),
-      'Runner out of date RUNNER peter-mbp-prod LAST SEEN 4m ago VERSION Protocol 3 · the Portal needs 4 UPDATE The runner app updates itself between runs The Portal refuses claims from this runner until it updates. The app installs the update after any run in progress. If it stays out of date, choose Check for update in its menu.',
+      'Runner out of date RUNNER peter-mbp-prod LAST SEEN 4 min ago VERSION Protocol 3 · the Portal needs 4 UPDATE The runner app updates itself between runs The Portal refuses claims from this runner until it updates. The app installs the update after any run in progress. If it stays out of date, choose Check for update in its menu.',
     );
     assert.equal(html(createElement(RunnerOutOfDateBody, { view, now: NOW })), '');
   });
@@ -219,6 +258,22 @@ describe('runner set-up states', () => {
     assert.match(source, /position: 'absolute', top: 0, right: 0/);
     assert.match(chip('ready'), /data-size="default"/);
     assert.match(chip('ready', true), /data-size="compact"/);
+  });
+
+  it('expands on hover or keyboard focus at 1440, and never on a phone', () => {
+    assert.equal(runnerChipExpanded({ hover: true, hovered: false, focused: false }), false);
+    assert.equal(runnerChipExpanded({ hover: true, hovered: true, focused: false }), true);
+    // Focus keeps the line open after the pointer leaves, so the focused button never unmounts.
+    assert.equal(runnerChipExpanded({ hover: true, hovered: false, focused: true }), true);
+    assert.equal(runnerChipExpanded({ hover: false, hovered: true, focused: true }), false);
+  });
+
+  it('gives the compact and the expanded chip the same button that opens the modal', () => {
+    for (const compact of [true, false]) {
+      const html = chip('ready', compact);
+      assert.match(html, /<button type="button" data-testid="runner-status-open" aria-haspopup="dialog"/);
+      assert.doesNotMatch(html, /tabindex="-1"/);
+    }
   });
 });
 

@@ -163,8 +163,8 @@ final class RuntimeLayoutTests: XCTestCase {
     let home = URL(fileURLWithPath: "/Users/staff")
 
     func testTheBundleLayout() {
-        let layout = RuntimeLayout(resources: URL(fileURLWithPath: "/Applications/Warehaus Runner.app/Contents/Resources"))
-        let root = "/Applications/Warehaus Runner.app/Contents/Resources/runner"
+        let layout = RuntimeLayout(resources: URL(fileURLWithPath: "/Applications/Warehaus Portal.app/Contents/Resources"))
+        let root = "/Applications/Warehaus Portal.app/Contents/Resources/runner"
         XCTAssertEqual(layout.node.path, "\(root)/bin/node")
         XCTAssertEqual(layout.gh.path, "\(root)/bin/gh")
         XCTAssertEqual(layout.cli.path, "\(root)/tools/runner/src/cli.mjs")

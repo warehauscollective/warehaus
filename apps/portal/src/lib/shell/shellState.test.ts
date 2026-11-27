@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { shellBootScript } from './shellBoot';
-import { MAC_SHELL_WAITING, WEB_SHELL, hasMacHandler, shellAfterMessage, shellKindFromAttribute } from './shellState';
+import { MAC_SHELL_WAITING, WEB_SHELL, hasMacHandler, shellAfterMessage, shellKindFromAttribute, shellNavigateHref } from './shellState';
 
 const hello = {
   type: 'shell.hello',
@@ -69,11 +69,37 @@ describe('shell boot script', () => {
     assert.equal(doc.documentElement.dataset.shell, 'mac');
     listeners['warehaus:shell']({ detail: hello });
     assert.deepEqual(win.__warehausShellHello, hello);
+    const early = { type: 'navigate', url: 'warehaus://task/t1' };
+    listeners['warehaus:shell']({ detail: early });
+    assert.deepEqual(win.__warehausShellNavigate, early);
   });
 
   it('does nothing in a browser', () => {
     const doc = { documentElement: { dataset: {} as Record<string, string> } };
     new Function('window', 'document', shellBootScript)({}, doc);
     assert.equal(doc.documentElement.dataset.shell, undefined);
+  });
+});
+
+describe('navigate from the shell', () => {
+  const navigate = { type: 'navigate', url: 'warehaus://milestone/nn77zctgc8wm54zmdkfxr5zntd8jwsh4?project=k975vmerwebjswcbmh27gbp6tx8h175e' };
+
+  it('resolves a navigate inside the Mac app', () => {
+    assert.equal(
+      shellNavigateHref(MAC_SHELL_WAITING, navigate),
+      '/projects/k975vmerwebjswcbmh27gbp6tx8h175e?milestone=nn77zctgc8wm54zmdkfxr5zntd8jwsh4',
+    );
+    assert.equal(shellNavigateHref(MAC_SHELL_WAITING, { type: 'navigate', url: 'warehaus://task/t1' }), '/tasks/t1');
+  });
+
+  it('ignores a navigate on the web', () => {
+    assert.equal(shellNavigateHref(WEB_SHELL, navigate), null);
+  });
+
+  it('ignores other messages, refused messages and unknown links', () => {
+    assert.equal(shellNavigateHref(MAC_SHELL_WAITING, hello), null);
+    assert.equal(shellNavigateHref(MAC_SHELL_WAITING, { type: 'navigate', url: 'https://example.com' }), null);
+    assert.equal(shellNavigateHref(MAC_SHELL_WAITING, { type: 'navigate', url: 'warehaus://settings/x' }), null);
+    assert.equal(shellNavigateHref(MAC_SHELL_WAITING, 'navigate'), null);
   });
 });

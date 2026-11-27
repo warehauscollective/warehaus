@@ -6,6 +6,7 @@ import {
   RUNNER_HEARTBEAT_MS,
   RUNNER_READY_WITHIN_MS,
   agoLabel,
+  agoLabelLong,
   latestRunner,
   runnerHealthCopy,
   runnerHealthState,
@@ -150,7 +151,7 @@ describe('runner health copy', () => {
         '2h ago',
         '—',
         command,
-        "No runner serving this repository has been seen in the last 10 minutes. The runner app starts at login, so check the Mac is on and open Warehaus Runner if it was quit. Moving a milestone to Building won't start an agent until one is running.",
+        "No runner serving this repository has been seen in the last 10 minutes. The runner app starts at login, so check the Mac is on and open Warehaus Portal if it was quit. Moving a milestone to Building won't start an agent until one is running.",
       ],
     );
 
@@ -165,7 +166,7 @@ describe('runner health copy', () => {
         '2h ago',
         'Client experience launch',
         command,
-        'Client experience launch is Building and waiting for the runner. Open Warehaus Runner on the Mac to pick the milestone up.',
+        'Client experience launch is Building and waiting for the runner. Open Warehaus Portal on the Mac to pick the milestone up.',
       ],
     );
 
@@ -185,7 +186,7 @@ describe('runner health copy', () => {
     const never = runnerHealthCopy(view({ runners: [{ id: 'peter-mbp', lastSeenAt: null }], production: false }), NOW);
     assert.deepEqual(
       [never.state, never.meta, never.lastSeen, never.onTheMac],
-      ['offline', 'not seen yet', '—', 'Open Warehaus Runner from Applications'],
+      ['offline', 'not seen yet', '—', 'Open Warehaus Portal from Applications'],
     );
   });
 
@@ -197,6 +198,15 @@ describe('runner health copy', () => {
     assert.equal(agoLabel(NOW - 2 * 60 * 60_000, NOW), '2h ago');
     assert.equal(agoLabel(NOW - 47 * 60 * 60_000, NOW), '47h ago');
     assert.equal(agoLabel(NOW - 72 * 60 * 60_000, NOW), '3d ago');
+  });
+
+  it('spells relative times out for the runner list, Revoke and Out of date', () => {
+    assert.equal(agoLabelLong(NOW + 5_000, NOW), '0 sec ago');
+    assert.equal(agoLabelLong(NOW - 59_999, NOW), '59 sec ago');
+    assert.equal(agoLabelLong(NOW - 4 * 60_000, NOW), '4 min ago');
+    assert.equal(agoLabelLong(NOW - 60 * 60_000, NOW), '1 hour ago');
+    assert.equal(agoLabelLong(NOW - 47 * 60 * 60_000, NOW), '47 hours ago');
+    assert.equal(agoLabelLong(NOW - 72 * 60 * 60_000, NOW), '3 days ago');
   });
 });
 

@@ -360,6 +360,19 @@ export function completeDecision(input: {
   };
 }
 
+export const RELEASE_KIND_INVALID = 'Only a task or planning run can be handed back';
+export const RELEASE_DEFAULT_REASON = 'The runner handed the run back';
+
+/**
+ * Why a run was handed back, for the feed and the run row: the runner's own
+ * words, masked and cut down, or a plain default. A release is not a failure,
+ * so it never blocks the task and never leaves an Ask.
+ */
+export function releaseReason(value: unknown): string {
+  const summary = eventSummary(typeof value === 'string' && value.trim() ? value : RELEASE_DEFAULT_REASON);
+  return summary.ok ? summary.summary : RELEASE_DEFAULT_REASON;
+}
+
 /** `milestone/<slug>`: lowercase words from the name, at most 48 characters. */
 export function milestoneBranch(name: string): string {
   const slug = name
@@ -523,5 +536,36 @@ export function mapCursorCommits(
   return done;
 }
 
-/** Open notes a single read returns. */
-export const NEEDS_PETER_LIMIT = 20;
+/**
+ * Parallel runs. A runner holds at most this many open runs at once, each on
+ * a different milestone. One run per milestone stays the rule: tasks on a
+ * milestone share one branch.
+ */
+export const RUNNER_MAX_SLOTS = 4;
+export const RUNNER_BUSY = 'Every run slot on this runner is in use.';
+
+/** The slots a claim asks for. A runner that sends none (protocol 2) has one. */
+export function runnerSlots(raw: unknown): number {
+  const n = typeof raw === 'number' && Number.isFinite(raw) ? Math.floor(raw) : 1;
+  return Math.min(RUNNER_MAX_SLOTS, Math.max(1, n));
+}
+
+/** The run ids the runner says it is working on, deduplicated and capped. */
+export function heldRunIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const ids = raw.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 64);
+  return [...new Set(ids)].slice(0, RUNNER_MAX_SLOTS * 2);
+}
+
+/**
+ * What a claim does with the runner's open runs. An open run the runner did
+ * not list is one it lost track of (it restarted, or a Cursor build came back
+ * to be followed again): hand that back first, oldest first. Otherwise the
+ * runner gets new work only while it has a free slot.
+ */
+export function openRunDecision(input: { open: string[]; held: string[]; slots: number }): { resume: string | null; full: boolean } {
+  const held = new Set(input.held);
+  const resume = input.open.find((id) => !held.has(id)) ?? null;
+  const inUse = input.open.filter((id) => held.has(id)).length;
+  return { resume, full: inUse >= input.slots };
+}

@@ -1,22 +1,37 @@
 # Mac app
 
-The Warehaus app on a staff Mac (see "Mac app" in `GLOSSARY.md`). Today it is
-**Warehaus Runner**: a menu bar app that keeps the production runner going
-headless. The Portal window ("Mac app: Portal window") is added later as its
-own module. Full record: `docs/adr/0006-multi-platform-portal.md`.
+The Warehaus app on a staff Mac (see "Mac app" in `GLOSSARY.md`). It is
+**Warehaus Portal**: the Portal in its own window, plus a menu bar runner that
+keeps the production runner going headless. Its bundle ID stays
+`co.warehaus.runner.app` from when it was named Warehaus Runner, so installed
+copies keep updating; an update moves a copy still named `Warehaus Runner.app`
+to `Warehaus Portal.app` in the same folder. Full record:
+`docs/adr/0006-multi-platform-portal.md`.
 
 Nothing here is a Node workspace.
+
+**Staff:** this page is for developers and maintainers. To set up a Mac as a
+runner, see [`tools/runner/FIRST-RUN.md`](../../tools/runner/FIRST-RUN.md). No
+staff step uses a terminal.
 
 ## Layout
 
 ```
 apps/mac/
   Package.swift                 Swift package: the modules and their tests
-  Sources/RunnerSupervisor/     the runner supervisor (Foundation only)
-  Sources/RunnerMenu/           menu bar dropdown, Remove dialog, login item, notifications
-  Tests/RunnerSupervisorTests/  state mapping and supervisor tests, against a fake runner
+  runtime.lock                  the Node and gh versions bundled in the app
+  Sources/RunnerSupervisor/     the runner supervisor, checklist and update rules (Foundation only)
+  Sources/PortalWindow/         the Portal window and the Mac adapter of the native bridge
+  Sources/NotificationRouting/  the one notification center delegate, routing clicks by source
+  Sources/RunnerMenu/           menu bar dropdown, checklist and pairing windows, Remove dialog,
+                                login item, notifications, self-update
+  Tests/RunnerSupervisorTests/  state mapping, checklist, update rules, against a fake runner
+  Tests/PortalWindowTests/      origin policy, link routing, bridge scripts, alerts and badge
+  Tests/RunnerMenuTests/        the self-update coordinator, against fake files and swaps
+  Tests/NotificationRoutingTests/ click routing by source
   App/WarehausRunner.xcodeproj  the app target: a thin @main that links RunnerMenu
   scripts/build-release.sh      signed, notarized, stapled release build (a Mac or CI)
+  scripts/bundle-runtime.sh     fills Contents/Resources/runner: Node, gh, tools/runner
   scripts/ci-keychain.sh        CI only: the certificate in a temporary keychain
   scripts/publish-release.sh    CI only: publishes the zip to the Portal (production)
 ```
@@ -27,7 +42,7 @@ Two deep modules that never talk to each other, with the menu bar and
 notifications on top of both (ADR-0006, decision 8):
 
 - **RunnerSupervisor** starts the Node runner (`tools/runner`) as a child
-  process with `start --supervised --mode headless` (plus `--production` in
+  process with `start --supervised --mode headless --parallel 4` (plus `--production` in
   release builds) and reads its state lines: one `@@warehaus {json}` line per
   change on stdout. It maps them to the four menu states, Ready, Working,
   Paused and Needs attention (`MenuState.from`). Pause and Resume are `pause`
@@ -41,22 +56,84 @@ notifications on top of both (ADR-0006, decision 8):
   `1115-38617`): the dropdown, the Remove confirm dialog, Start at login
   (`SMAppService.mainApp`, on from the first launch in release builds) and
   notifications only when a person must act (`AttentionReason.needsPerson`).
-- **Portal window** (later): the web view and the Mac adapter for the native
-  bridge (`packages/native-bridge/swift`). It never imports RunnerSupervisor.
+- **PortalWindow** shows the hosted Portal in one WKWebView under a
+  transparent 40px title bar strip that drags the window (Figma, Projects /
+  Mac app, 1440 and 1024 frames; minimum 1024 x 768). It is the Mac adapter
+  of the native bridge (`packages/native-bridge/swift`): it adds the
+  `warehaus` script message handler, sends `shell.hello` with
+  `openExternal` after every page load, opens `openExternal` links (https
+  only) in the default browser, accepts and ignores `attention`, and logs
+  and drops anything the decoder refuses. A `warehaus://` link opened
+  anywhere on the Mac (Info.plist `CFBundleURLTypes`) opens the window and
+  goes to the page raw with `navigate`. Portal-origin navigations stay in the
+  window; every other link goes to the default browser (`LinkRouter`). It
+  never imports RunnerSupervisor. The menu's Open Portal opens this window.
 
-Seams left for their own tasks, each a small protocol with a stub today:
+  `attention` from the page sets the Dock badge to the count (none at 0) and
+  posts one notification per alert id not seen before (Figma, Projects /
+  Mac app / Needs you and Ready to Ship notifications). Seen ids live in
+  UserDefaults (the newest 200), so a reload or relaunch never notifies
+  twice, and the first `attention` after launch only seeds them. Permission
+  is asked the first time an alert would notify, never at launch. The hello
+  claims `badge` and `openExternal` always and `notify` only while the Mac
+  allows it, and is sent again when that changes. Clicking a notification
+  opens the window and hands the alert's raw link to the page.
+- **NotificationRouting** is the one `UNUserNotificationCenter` delegate.
+  The window tags its notifications `source: portal`, the runner menu tags
+  its act-only ones `source: runner`, and the app delegate registers a click
+  handler for each. Neither module imports the other for this.
 
-| Seam | Today | Task |
+The seams, each a small protocol with a live and a fake side:
+
+| Seam | Live | Where |
 | --- | --- | --- |
-| `RunnerLocating` | Release: `Contents/Resources/runner` (empty until bundled). Debug: this checkout and Homebrew Node | First launch: bundled Node, runner and gh |
-| `SetUpFlow` | Opens the Portal, or github.com/login | First launch: checklist and pairing windows |
-| `UpdateChecking` | Always "Up to date" | Self-update between runs |
+| `RunnerLocating` | Release: the bundled runner in `Contents/Resources/runner`. Debug: this checkout and Homebrew Node | RunnerSupervisor |
+| `PairingReading`, `PauseStoring` | The saved runner file; the remembered pause | RunnerSupervisor |
+| `SetupSystem` | `gh`, the Claude Code installer, `setup --supervised`, the old launchd agent | RunnerMenu |
+| `ReleaseSource`, `UpdateWorkspace`, `AppSwapping` | `app-release`; the Updates folder; swapping the app bundle | RunnerMenu |
+| `LoginItem`, `AttentionNotifying`, `URLOpening` | `SMAppService.mainApp`; notifications; the browser | RunnerMenu |
+
+## First launch
+
+Until the app runs its own runner, it shows the checklist (GitHub, Claude
+Code, Pair with the Portal), then the pairing window, which shows the code
+from `setup --supervised --production` and opens `/?runnerPair=<code>`. An
+existing pairing is adopted ("Already paired as …"). An old
+`co.warehaus.runner.prod` launchd agent is offered as Replace it, and the app
+starts no runner until it is replaced.
+
+## Self-update
+
+Between runs, never during one (Portal decision 0005, ADR-0005 amendment of
+2026-11-26). The rules are in `AppUpdate.swift` (RunnerSupervisor), the file
+and process work in `AppUpdater.swift` (RunnerMenu).
+
+- Checks on launch, every 6 hours and on Check for update, once the app runs
+  its own runner, through `app-release` (`POST /agent/app-release`). Newer
+  means a higher build number.
+- Downloads to `~/Library/Application Support/co.warehaus.runner.app/Updates`
+  and checks size and SHA-256, then `codesign --verify`, team `7XQWUC33C7`,
+  bundle id `co.warehaus.runner.app`, the build named by the release, and
+  `spctl`.
+- Installs only when the runner is idle, paused or stopped: stops it, swaps
+  the bundle (rollback copy in `Updates/rollback`), and opens the new app with
+  `-UpdateCheckIn <file>`. The old app rolls back if there is no check-in
+  within 45 seconds.
+- An app it cannot replace in place says "Can't update here. Move the app to
+  Applications."
 
 ## Production only
 
 - Release builds run against production `unique-turtle-383` only and read
   `~/.config/warehaus/runner.prod.env`. A pairing to any other deployment is
   Needs attention, never used.
+- The release window loads only the production Portal,
+  `https://warehaus-portal.vercel.app` (the Vercel project's only production
+  domain). Debug windows load only `http://localhost:<port>` (default 3100,
+  or `-PortalURL http://localhost:3190/projects`), and block production
+  Convex: a WebKit content rule blocks every request naming
+  `unique-turtle-383`, and a script replaces the page with a refusal if it
+  tries (`ConvexGuard`).
 - Debug builds run against shared dev and read `runner.env`. They refuse
   production. **A plain debug run starts a real dev runner if this Mac is
   paired to dev**, and it runs Claude headless. Use a fixture to look at the
@@ -69,17 +146,51 @@ cd apps/mac && swift test
 ```
 
 Or in Xcode: open `apps/mac/App/WarehausRunner.xcodeproj` and run the
-**Warehaus Runner** scheme. To see the four states with fixture data and no
-runner, tick one `-RunnerFixture` argument under Product › Scheme › Edit
-Scheme › Run › Arguments (ready, working, paused, attention). The tests run
-from the package (`xcodebuild -scheme WarehausMac-Package test
--destination platform=macOS` in `apps/mac`).
+**Warehaus Portal** scheme. The tests run from the package (`xcodebuild
+-scheme WarehausMac-Package test -destination platform=macOS` in `apps/mac`).
+
+Debug launch arguments, ticked under Product › Scheme › Edit Scheme › Run ›
+Arguments. None of them touch this Mac's real gh, Claude Code, pairing or
+launchd agent:
+
+- `-RunnerFixture ready|working|working-several|paused|attention`: the menu
+  states with fixture data and no runner. `working-several` shows three runs
+  at once.
+- `-SetupFixture fresh|signed-out|github-code|installing|claude-signin|pairing|expired|takeover|done`:
+  the checklist and pairing windows; clicks move the fixture along.
+- `-SetupSnapshot <folder>`: writes every checklist and pairing state, Dark
+  and Light, as PNGs for the design check, then quits.
+- `-UpdateRelease <release.json>`: reads the release from a file instead of
+  the Portal (a `file://` zip is fine), to try self-update end to end. Debug
+  builds only, and never against production.
+
+To check the Portal window against a local fixtures preview (no Convex):
+
+```bash
+PORTAL_PORT=3190 NEXT_PUBLIC_SITE_URL=http://localhost:3190 NEXT_PUBLIC_PORTAL_FIXTURES=1 npm run dev -w @warehaus/portal
+```
+
+Then run the debug app with `-RunnerFixture ready -OpenPortalWindow YES
+-PortalURL http://localhost:3190/projects`. Debug-only arguments
+`-PortalWindowSize 1024x768`, `-PortalAppearance dark|light` and
+`-PortalWindowSnapshot <folder>` size the window, force the appearance and
+write a PNG plus what the page made of the shell (`data-shell`, the hello,
+the inset) and the native state (badge, permission, delivered
+notifications) without screen recording permission.
+`-AttentionFixture needs-you|ready-to-ship|both|clear` has the page post
+fixture `attention` messages through the real bridge handler (an empty seed,
+then the fixture), until the Convex attention feed exists.
 
 A signed and notarized build:
 
 ```bash
 apps/mac/scripts/build-release.sh
 ```
+
+It runs `bundle-runtime.sh` first, which downloads the Node and `gh` pinned in
+`runtime.lock`, checks their SHA-256, and copies them with `tools/runner` and
+`packages/runner-protocol` into `Contents/Resources/runner` (Node is signed
+with `App/Node.entitlements`). `BUILD_NUMBER` sets the build number.
 
 It signs with "Developer ID Application: Warehaus LLC (7XQWUC33C7)" using
 `--options runtime --timestamp`, notarizes with `xcrun notarytool submit
@@ -90,7 +201,7 @@ the Mac's keychain, never in the repo. `--skip-notarize` checks the Developer
 ID signature without notarizing. `--unsigned` needs no certificate: it signs ad
 hoc with the hardened runtime. Neither leaves a zip.
 
-After notarization it writes `build/Warehaus-Runner.zip` and
+After notarization it writes `build/Warehaus-Portal.zip` and
 `build/release.json` (version, build, sha256, size, minMacOS).
 
 ## Release on CI
@@ -137,3 +248,11 @@ Only the release job reads these secrets. It runs by hand, from `main` only.
   app never reads the runner secret; the runner does.
 - Swift never parses `warehaus://` links. It hands them to the page with
   `navigate`.
+
+## Open items
+
+- The runner gets only an allowlist of the app's environment (`HOME`, `USER`,
+  `LOGNAME`, `SHELL`, `TMPDIR`, `LANG`, `SSH_AUTH_SOCK`), so a runner under the
+  app has no `CURSOR_API_KEY` and Cursor builds block with a note. Claude Code
+  projects are not affected. A fix needs its own task, with no terminal step
+  for staff.

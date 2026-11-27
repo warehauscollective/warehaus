@@ -7,10 +7,11 @@
  *   POST /agent/events    one short line for the run feed
  *   POST /agent/tasks     the task list from a planning run
  *   POST /agent/complete  end a task run, or a planning run that failed
+ *   POST /agent/release   hand a task or planning run back untouched (Claude hit its usage limit)
  *   POST /agent/build     progress from the one Cursor agent on a milestone
  *   POST /agent/ping      an idle runner saying it is alive. Reads and hands out nothing
- *   POST /agent/unpair    a registered runner revoking itself (Remove this runner in the Mac app)
  *   POST /agent/app-release  the latest runner app build, for the app to update itself between runs
+ *   POST /agent/unpair    a registered runner revoking itself (Remove this runner in the Mac app)
  *
  * Pairing takes no runner token:
  *
@@ -24,7 +25,7 @@
 import { RUNNER_APP_RELEASE_PATH, RUNNER_PAIR_PATHS, RUNNER_PROTOCOL_HEADER } from '@warehaus/runner-protocol';
 import { internal } from './_generated/api';
 import { httpAction } from './_generated/server';
-import { RUNNER_ID_INVALID, RUNNER_ID_PATTERN, RUNNER_UNAUTHORIZED, runnerRepos } from './_lib/agentRun';
+import { heldRunIds, RUNNER_ID_INVALID, RUNNER_ID_PATTERN, RUNNER_UNAUTHORIZED, runnerRepos, runnerSlots } from './_lib/agentRun';
 import {
   PAIRING_BAD_REQUEST,
   pairingCodeFrom,
@@ -40,6 +41,7 @@ export const AGENT_ROUTES = [
   '/agent/events',
   '/agent/tasks',
   '/agent/complete',
+  '/agent/release',
   '/agent/build',
   '/agent/ping',
   '/agent/unpair',
@@ -118,6 +120,9 @@ export const agentHttp = httpAction(async (ctx, request) => {
       // The project setting picks the agent. A tool on the request is ignored.
       repos: runnerRepos(body.repos),
       anyRepo: true,
+      // Parallel runs (protocol 3). A runner that sends neither works one run at a time.
+      ...(typeof body.slots === 'number' ? { slots: runnerSlots(body.slots) } : {}),
+      ...(Array.isArray(body.held) ? { held: heldRunIds(body.held) } : {}),
     });
     return json(result, 200);
   }
@@ -156,6 +161,14 @@ export const agentHttp = httpAction(async (ctx, request) => {
       ...(body.commitSha !== undefined ? { commitSha: body.commitSha } : {}),
       ...(body.reason !== undefined ? { reason: body.reason } : {}),
       ...(body.prUrl !== undefined ? { prUrl: body.prUrl } : {}),
+    });
+    return result.ok ? json(result, 200) : json({ error: result.error }, result.status);
+  }
+  if (path === '/agent/release') {
+    const result = await ctx.runMutation(internal.agent.releaseRun, {
+      runnerId,
+      runId: field(body, 'runId'),
+      ...(body.reason !== undefined ? { reason: body.reason } : {}),
     });
     return result.ok ? json(result, 200) : json({ error: result.error }, result.status);
   }

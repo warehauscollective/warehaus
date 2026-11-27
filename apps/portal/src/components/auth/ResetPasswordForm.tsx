@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { PrimaryButton, Surface } from '@/components/ui/primitives';
+import { PasswordInput } from '@/components/ui/PasswordInput';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { authClient } from '@/lib/auth-client';
 
@@ -136,9 +137,8 @@ export function ResetPasswordForm({
           <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--muted)' }}>
             New password
           </span>
-          <input
+          <PasswordInput
             className="ds-input"
-            type="password"
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -150,9 +150,8 @@ export function ResetPasswordForm({
           <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--muted)' }}>
             Confirm password
           </span>
-          <input
+          <PasswordInput
             className="ds-input"
-            type="password"
             autoComplete="new-password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
