@@ -58,6 +58,14 @@ export const scalars = {
   cut: '22px',
   'cut-lg': '40px',
 
+  // Icon box — Figma Atom/Icon is drawn at 16 (md). The stroke scales with the box.
+  'icon-2xs': '10px',
+  'icon-xs': '12px',
+  'icon-sm': '14px',
+  'icon-md': '16px',
+  'icon-lg': '20px',
+  'icon-xl': '28px',
+
   // Motion
   speed: '180ms',
   ease: 'cubic-bezier(0.2, 0.7, 0.2, 1)',
@@ -86,5 +94,13 @@ export const tokens = {
   layout: { sectionY: scalars['section-y'], gutter: scalars.gutter, maxw: scalars.maxw },
   radius: { sm: scalars['radius-sm'], base: scalars.radius, lg: scalars['radius-lg'], pill: scalars['radius-pill'] },
   cut: { base: scalars.cut, lg: scalars['cut-lg'] },
+  icon: {
+    '2xs': scalars['icon-2xs'],
+    xs: scalars['icon-xs'],
+    sm: scalars['icon-sm'],
+    md: scalars['icon-md'],
+    lg: scalars['icon-lg'],
+    xl: scalars['icon-xl'],
+  },
   motion: { speed: scalars.speed, ease: scalars.ease },
 };

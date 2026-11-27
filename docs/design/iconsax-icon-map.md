@@ -259,3 +259,32 @@ Atoms (`1245:8203`), Molecules (`1245:8208`), Organisms (`1245:8213`), Dashboard
 - **Play (flag 3).** Linear `Play` at 10px on the advance button reads clearly in Dark and Light, but it is lighter than the filled triangle it replaced. It follows the approved mapping. A Bold `Play` would be a sixth Bold icon and still needs Peter's yes.
 - **Grip (flag 2).** Archived with its family. No variant was added.
 - **Figma link mark (flag 6).** The tile now shows the Iconsax `Figma` logo in place of the four corners, so the frame already differs from code until the build tasks land.
+
+## Task 05: the package and the Icon wrapper
+
+Done 2026-11-26 in code. No screen changed: nothing imports the wrapper yet. Task 06 swaps the icons over.
+
+- `iconsax-reactjs` 0.0.8 is a dependency of `apps/portal`, pinned to the exact version.
+- The wrapper is `apps/portal/src/components/ui/Icon.tsx`. It is the only file that imports `iconsax-reactjs`, and a test fails if a second file does. It carries the Iconsax notice.
+- `<Icon name="Lock" />`. `name` is the `Atom/Icon` `Name`. The wrapper holds the same 57 names as the set: 55 from Iconsax, plus `Check` and `X` from Lucide, drawn with a 1.5 stroke to match.
+- `variant="Bold"` is accepted only for Activity, BookSaved, Element3, Kanban and Profile. Everything else is Linear.
+- `size` is a token, not a number. New tokens in `@warehaus/tokens` (`tokens.icon`, `--icon-*` in CSS):
+
+  | `size` | px | Used for |
+  |---|---|---|
+  | `2xs` | 10 | The play mark on the advance button |
+  | `xs` | 12 | Tags and status chips |
+  | `sm` | 14 | Small rows |
+  | `md` | 16 | The default. The box `Atom/Icon` is drawn on. |
+  | `lg` | 20 | Modal header, invite states |
+  | `xl` | 28 | Empty states |
+
+  The drawing is the Iconsax 24 grid scaled to the box, so the stroke scales with it, as in Figma.
+- `color` is a token: `current` (the default, the parent's text colour), `fg`, `muted`, `accent-fg`, `warning`, `danger`, `success`. Each is a theme variable, so it follows Dark and Light.
+- An icon is hidden from screen readers unless it gets a `label`.
+
+For task 06:
+
+- Two Lucide icons are drawn at 18 today (`Lock` in `activity/ActivityFeedRow.tsx`, `Check` in `pages/TeamInvites.tsx`). There is no 18 token, because Figma has no 18 icon. Each takes `md` or `lg`, whichever its frame shows.
+- Figma's default colour for the set is `portal/muted`. The wrapper's default is `current`, because most icons in code sit inside a button or link and take its colour. Pass `color="muted"` where the frame shows a bare muted icon.
+- When the last direct `lucide-react` import is gone, the same "only file" test can cover Lucide too.

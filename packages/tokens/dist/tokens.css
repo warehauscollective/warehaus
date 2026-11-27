@@ -35,6 +35,12 @@
   --radius-pill: 999px;
   --cut: 22px;
   --cut-lg: 40px;
+  --icon-2xs: 10px;
+  --icon-xs: 12px;
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --icon-xl: 28px;
   --speed: 180ms;
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
