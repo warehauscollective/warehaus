@@ -48,6 +48,15 @@ import { MilestoneRunFeedLive } from './MilestoneRunFeed';
 
 type MilestoneTab = 'overview' | 'tasks' | 'activity' | 'reviews';
 
+export const TASKS_TITLE = 'Tasks';
+
+/** Figma P04 heading. The count shows at 1440 only; the phone board panel carries it. */
+export function tasksSubtitle(input: { count: number; phone: boolean }): string {
+  const base = 'Work needed to complete this milestone';
+  if (input.phone) return base;
+  return `${base} · ${input.count === 1 ? '1 task' : `${input.count} tasks`}`;
+}
+
 type MilestoneMutations = {
   save: (args: {
     hostSlug?: string;
@@ -306,6 +315,7 @@ export function MilestoneDetailView({
   const [busy, setBusy] = useState(false);
   // The review card has its own phone layout. It does not follow CSS breakpoints.
   const phone = useMaxWidth(767);
+  const tasksPage = tab === 'tasks';
   const locked = milestone.approval === 'approved';
   const total = taskTotal(milestone);
   const recordBoard = boardTaskCounts(milestone);
@@ -370,15 +380,42 @@ export function MilestoneDetailView({
   return (
     <div className="flex flex-col gap-6">
       {onBackToProjects ? (
-        <ProjectBreadcrumb
-          back={{ label: `‹ ${project.name}`, onClick: onBack }}
-          trail={[
-            { label: 'Projects', onClick: onBackToProjects, testId: 'nav-breadcrumb-parent' },
-            { label: project.name, onClick: onBack, testId: 'nav-breadcrumb-middle' },
-            { label: 'Milestones', testId: 'nav-breadcrumb-current' },
-          ]}
-        />
+        tasksPage ? (
+          // Figma P04: Tasks is a page under the milestone. Back and the last crumb lead to its overview.
+          <ProjectBreadcrumb
+            back={{ label: `‹ ${milestone.name}`, onClick: () => setTab('overview') }}
+            trail={[
+              { label: 'Projects', onClick: onBackToProjects, testId: 'nav-breadcrumb-parent' },
+              { label: project.name, onClick: onBack, testId: 'nav-breadcrumb-middle' },
+              { label: milestone.name, onClick: () => setTab('overview'), testId: 'nav-breadcrumb-current' },
+            ]}
+          />
+        ) : (
+          <ProjectBreadcrumb
+            back={{ label: `‹ ${project.name}`, onClick: onBack }}
+            trail={[
+              { label: 'Projects', onClick: onBackToProjects, testId: 'nav-breadcrumb-parent' },
+              { label: project.name, onClick: onBack, testId: 'nav-breadcrumb-middle' },
+              { label: 'Milestones', testId: 'nav-breadcrumb-current' },
+            ]}
+          />
+        )
       ) : null}
+      {tasksPage ? (
+        <PageHeading
+          alignAction
+          testId="milestone-tasks-title"
+          title={TASKS_TITLE}
+          subtitle={tasksSubtitle({ count: board.lanes, phone })}
+          action={
+            phone ? undefined : (
+              <OutlineButton testId="milestone-tasks-overview" nowrap onClick={() => setTab('overview')}>
+                Milestone overview
+              </OutlineButton>
+            )
+          }
+        />
+      ) : (
       <PageHeading
         alignAction
         testId="milestone-name"
@@ -393,6 +430,7 @@ export function MilestoneDetailView({
         })()}
         action={staff && closeout ? <span data-testid="milestone-header-overflow" className="inline-flex">{closeout}</span> : undefined}
       />
+      )}
       <TabRow
         label="Milestone"
         idPrefix="milestone"

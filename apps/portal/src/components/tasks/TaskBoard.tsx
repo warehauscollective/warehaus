@@ -897,8 +897,27 @@ function Column({
         ) : null}
         {showQuickAdd && staff && !columnKey.startsWith('unknown') ? (
           quickAddEnabled ? (
-            <button type="button" onClick={onQuick} className="text-left" style={{ border: '1px dashed var(--border)', borderRadius: 18, padding: '0.7rem 0.85rem', color: 'var(--muted)', background: 'transparent' }}>
-              + Add task
+            <button
+              type="button"
+              onClick={onQuick}
+              data-testid="column-add-task-button"
+              className="inline-flex items-center self-start"
+              style={{
+                minWidth: 182,
+                height: 42,
+                gap: 8,
+                padding: '0 14px',
+                border: '1px dashed var(--border-2)',
+                borderRadius: 18,
+                fontSize: 14,
+                lineHeight: '21px',
+                color: 'var(--muted)',
+                background: 'transparent',
+                cursor: 'pointer',
+              }}
+            >
+              <span aria-hidden style={{ fontSize: 16, lineHeight: 1 }}>+</span>
+              Add task
             </button>
           ) : (
             <DisabledQuickAdd label="+ Add task" testId="column-add-task" block />

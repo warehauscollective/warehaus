@@ -288,3 +288,13 @@ describe('TaskCardFace design gate', () => {
     assert.match(blocked, /Waiting on copy/);
   });
 });
+
+describe('Tasks page heading (Figma P04)', () => {
+  it('counts tasks at 1440 and drops the count on a phone', async () => {
+    const { tasksSubtitle, TASKS_TITLE } = await import('../projects/MilestoneDetailView');
+    assert.equal(TASKS_TITLE, 'Tasks');
+    assert.equal(tasksSubtitle({ count: 8, phone: false }), 'Work needed to complete this milestone · 8 tasks');
+    assert.equal(tasksSubtitle({ count: 1, phone: false }), 'Work needed to complete this milestone · 1 task');
+    assert.equal(tasksSubtitle({ count: 8, phone: true }), 'Work needed to complete this milestone');
+  });
+});

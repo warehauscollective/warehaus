@@ -196,7 +196,7 @@ describe('milestone Tasks tab board', () => {
     const html = board({ staff: true });
     assert.ok(html.includes(BOARD_INTRO));
     assert.ok(html.includes(BOARD_FOOTER));
-    assert.equal((html.match(/\+ Add task/g) ?? []).length, 1);
+    assert.equal((html.match(/data-testid="column-add-task-button"/g) ?? []).length, 1);
     assert.match(html, /aria-label="Add task to To Do"/);
     assert.equal(html.includes('aria-label="Add task to Done"'), false);
     assert.match(html, /cursor:grab/);
@@ -316,7 +316,7 @@ describe('run order in To Do', () => {
     assert.match(building, new RegExp(BOARD_BUILDING));
     assert.equal(building.includes(BOARD_FOOTER), false);
     // Add task stays, and cards still move between columns.
-    assert.match(building, /\+ Add task/);
+    assert.match(building, /data-testid="column-add-task-button"/);
     assert.match(building, /cursor:grab/);
   });
 
