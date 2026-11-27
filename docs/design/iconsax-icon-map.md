@@ -58,7 +58,7 @@ All 40 names in the approved mapping are now in the set.
 
 ## Figma: old icon families to `Atom/Icon`
 
-The two domain families already use Iconsax drawings. They move to the one set by name. Task 04 swaps the instances and archives the old components.
+The two domain families already use Iconsax drawings. They move to the one set by name. Task 04 swapped the instances and archived the old components (see "Task 04" below).
 
 | Old component | `Atom/Icon` Name |
 |---|---|
@@ -206,3 +206,56 @@ Icons with no good Iconsax match, or where a choice needs a second look.
 - Every variant is 16×16 with one visible `_iconsax` frame inside. The older variants also keep their hidden `_old` layers from before the Iconsax redraw.
 - Every visible stroke and fill in all 62 variants is bound to `portal/muted`.
 - All 62 variants were rendered on `portal/bg` in the Dark mode and the Light mode and read correctly in both.
+
+## Task 04: screens swapped to the set
+
+Done 2026-11-26 in Figma. Nothing was published and no instance was detached. Docs only in the repo.
+
+### Old families
+
+Every instance of `Atom/Links/Icon/*` and `Atom/Invites/Icon/*` outside the Archive pages now points at `Atom/Icon`, by the table above. 76 instances were swapped in place:
+
+| Where | Components or frames | Icons |
+|---|---|---|
+| Library, Atoms | `Atom/Links/Visibility tag` (`522:6306`), `Atom/Links/Staff only tag` (`516:4880`), `Atom/Invites/Status` (`540:6883`) | Monitor, Lock, Clock, at 12px |
+| Library, Molecules | `Molecule/Links/Item` (`516:4919`), `Molecule/Need a milestone` (`1023:6081`), `Molecule/Invites/Password rule` (`540:6986`) | Global, ExportSquare, X, TickCircle, RecordCircle |
+| Library, Organisms | `Organism/AuthCard` (`750:4163`), `Organism/InviteForm` (`753:7021`), `Organism/InviteEmail` (`753:2807`) | Lock, X, Sms, Clock, Warning2, TickCircle, Profile2User, ShieldTick |
+| Account, Local components | `Organism/Client team` (`1172:9411`) | Lock |
+| Dashboard, D02 · Joined as staff | 1440 Dark (`1195:3117`), 390 Dark (`1195:3360`) | TickCircle, ShieldTick at 14px |
+
+- Each instance kept its size. A 12, 14 or 20px icon is the 16px variant scaled, so its stroke scales with it (0.75, 0.875, 1.25), the same as before the swap.
+- Every swapped instance used the default `portal/muted`, so no colour override was needed.
+- Instances nested inside other components (the tags inside `Molecule/Links/Item` and `Organism/MilestoneListCard`, the status tag in the member row and card, the password rules in `Organism/AuthCard`) follow their component.
+- Light frames are instances of the Dark components, so they follow. Checked on D02 390 Light and Project page 390 Light.
+- The 25 old components moved to Archive — Portal, section "Library icon families replaced by Atom/Icon" (`1299:32760`). Rows are in `docs/design/figma-id-map.md`. Frames on the Archive pages still point at them and were left as they are.
+
+### Drawings that were not components
+
+A scan of the library and the six Portal pages for small loose vectors and single icon characters found these. Each is now an `Atom/Icon` instance in the same place, size and colour. The old drawing is kept in the layer, hidden and renamed `_old/…`, as the older `Atom/Icon` variants do.
+
+| Component or frame | Was | Now | Count |
+|---|---|---|---|
+| `Organism/MilestoneListCard` (`770:11999`), Link / Local preview | `Icon / monitor-play`, loose vectors | Monitor, 16px | 22 |
+| `Organism/MilestoneListCard` (`770:11999`), Link / Figma | `Icon / frame`, four corners | Figma, 16px | 20 |
+| `Organism/MilestoneStatusControl` (`1254:8530`), advance button | `icon/play`, filled triangle, 10px | Play Linear, 10px, `portal/fg` | 8 |
+| `Molecule/ValueButton`, hover (`748:10931`) | `Icon · pencil (local)` | Edit2, 16px, `portal/fg` | 1 |
+| Account / Your team - 390 Dark (`1182:8862`), Invite button | text `+` | Add, 16px, `portal/accent-fg` | 1 |
+
+The hover state of the two link buttons keeps `portal/fg` (4 instances).
+
+### Changelog lines
+
+Atoms (`1245:8203`), Molecules (`1245:8208`), Organisms (`1245:8213`), Dashboard D02 (`1195:3527`), Account A03 (`1182:8939`), Account Local components (`1183:9944`).
+
+### Left as they are
+
+- `Corner bracket` vectors on cards and section headers. They are decoration, not icons.
+- Dots, rings and task circles (`Task · open`, `Read`, `Unread`, published dot). They are state marks, as in "Not icons" above.
+- Runner app and Mac app frames on Portal - Projects (P07, P08): window controls and the checklist `Mark / done`. Those are the Mac app, which uses SF Symbols and is outside this milestone.
+- Icon characters inside a longer text layer, such as `‹ Projects` on the 390 back link. The scan only matched a text layer that is one character. Code maps `‹` to ArrowLeft2 in task 05 or 06; the frame should be brought in line then or in the task 07 visual check.
+
+### Flags after the swap
+
+- **Play (flag 3).** Linear `Play` at 10px on the advance button reads clearly in Dark and Light, but it is lighter than the filled triangle it replaced. It follows the approved mapping. A Bold `Play` would be a sixth Bold icon and still needs Peter's yes.
+- **Grip (flag 2).** Archived with its family. No variant was added.
+- **Figma link mark (flag 6).** The tile now shows the Iconsax `Figma` logo in place of the four corners, so the frame already differs from code until the build tasks land.
