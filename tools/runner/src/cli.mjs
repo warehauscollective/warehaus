@@ -220,11 +220,18 @@ async function doTask(config, work) {
   const dir = ensureWorktree(checkoutFor(work), work.milestone.branch);
   const notes = join(dir, '.runner');
   rmSync(join(notes, 'blocked.txt'), { force: true });
+  rmSync(join(notes, 'design-done.txt'), { force: true });
   const before = git(dir, ['rev-parse', 'HEAD']).out;
   const ran = await runClaude(config, dir, taskPrompt(readFileSync(join(prompts, 'task.md'), 'utf8'), work), work.runId);
   const after = git(dir, ['rev-parse', 'HEAD']).out;
   const limit = usageLimitFrom(ran.tail);
-  const outcome = taskOutcome({ before, after, blockedReason: readIfPresent(join(notes, 'blocked.txt')), usageLimit: limit });
+  const outcome = taskOutcome({
+    before,
+    after,
+    blockedReason: readIfPresent(join(notes, 'blocked.txt')),
+    usageLimit: limit,
+    designDone: work.task.kind === 'design' ? readIfPresent(join(notes, 'design-done.txt')) : '',
+  });
   if (outcome.status === RELEASED) {
     // The work so far stays in the worktree. The next run on this milestone carries on from it.
     holdForUsage(limit);

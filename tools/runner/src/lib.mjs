@@ -305,9 +305,26 @@ export function designApprovalLine(designApprovedAt) {
   return `Design: approved by Peter in the Portal on ${day}. Build tasks can go ahead.`;
 }
 
+/**
+ * What a design task is told instead of the commit rules. Empty for a build
+ * task, so its prompt reads as before. Mirrors docs/design/figma-protocol.md.
+ */
+export const DESIGN_TASK_RULES = [
+  '## This is a design task',
+  '',
+  'Work in Figma, in the Warehaus Studio file, under `docs/design/figma-protocol.md`: change existing components and frames only, hand-build 1440 Dark and 390 Dark, make Light frames instances, and add a Changelog line for each edit. Never publish the library.',
+  '',
+  'Do not change code and do not commit. When the Figma work is done, write one line naming the frames you changed to `.runner/design-done.txt` and exit. Peter approves the designs before any build task starts.',
+].join('\n');
+
+export function taskKindRules(kind) {
+  return kind === 'design' ? DESIGN_TASK_RULES : '';
+}
+
 export function taskPrompt(template, work) {
   return fill(template, {
     designApproval: designApprovalLine(work.milestone.designApprovedAt),
+    kindRules: taskKindRules(work.task.kind),
     milestoneName: fenceUntrusted('NAME', work.milestone.name),
     objective: fenceUntrusted('OBJECTIVE', work.milestone.objective),
     goals: fenceUntrusted('GOALS', goalLines(work.milestone.goals)),
@@ -347,7 +364,8 @@ export function parsePlan(text) {
     const title = typeof task === 'string' ? task : task?.title;
     if (typeof title !== 'string' || !title.trim()) return { ok: false, error: 'Every task needs a title.' };
     const detail = typeof task?.detail === 'string' ? task.detail.trim() : '';
-    out.push(detail ? { title: title.trim(), detail } : { title: title.trim() });
+    const kind = String(task?.kind ?? '').trim().toLowerCase() === 'design' ? 'design' : null;
+    out.push({ title: title.trim(), ...(detail ? { detail } : {}), ...(kind ? { kind } : {}) });
   }
   return { ok: true, tasks: out };
 }
@@ -406,11 +424,14 @@ export function parseGitLog(text) {
  * no Ask, and any commit it made stays in the worktree for the
  * next run. Otherwise no new commit means the run failed.
  */
-export function taskOutcome({ before, after, blockedReason, usageLimit = null }) {
+export function taskOutcome({ before, after, blockedReason, usageLimit = null, designDone = '' }) {
   const reason = (blockedReason ?? '').replace(/\s+/g, ' ').trim();
   const [done, blocked, failed] = COMPLETE_STATUSES;
   if (reason) return { status: blocked, reason: reason.slice(0, 240), ...(after && after !== before ? { commitSha: after } : {}) };
   if (usageLimit) return { status: RELEASED, reason: usageLimitReason(usageLimit) };
+  // A design task works in Figma and commits nothing. Its done note is the proof.
+  const designNote = (designDone ?? '').replace(/\s+/g, ' ').trim();
+  if ((!after || after === before) && designNote) return { status: done };
   if (!after || after === before) return { status: failed, reason: 'The run ended with no new commit' };
   return { status: done, commitSha: after };
 }

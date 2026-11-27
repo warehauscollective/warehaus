@@ -20,7 +20,7 @@ Reply with one JSON object and nothing else. 3 to 10 tasks, in the order they sh
 ```json
 {
   "tasks": [
-    { "title": "Short imperative title", "detail": "What to change, where, and how to check it." }
+    { "title": "Short imperative title", "detail": "What to change, where, and how to check it.", "kind": "build" }
   ]
 }
 ```
@@ -31,7 +31,13 @@ A good task:
 - has a title under 200 characters that starts with a verb
 - says in `detail` which files or screens change and what "done" looks like
 - comes after the tasks it depends on
-- puts design before build when the milestone changes what people see
+- has a `kind`: `design` or `build`
+
+Design tasks:
+
+- When the milestone changes what people see, the first task is a design task (`"kind": "design"`): it designs the change in Figma under `docs/design/figma-protocol.md`, in Dark and Light at 1440 and 390. Add more design tasks only for separate screens.
+- A design task never changes code. Build tasks wait until Peter approves the designs; the runner holds them.
+- A milestone that changes nothing people see has no design task.
 
 Together the tasks must cover every "done when" line, and nothing outside the milestone.
 
