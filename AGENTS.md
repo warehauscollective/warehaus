@@ -59,13 +59,13 @@ Decided by Peter, 2026-11-25. Full record: `docs/adr/0006-multi-platform-portal.
 
 ### Decided, not built yet
 
-Settled with Peter in the milestone lifecycle grilling on 2026-11-26: Portal project decisions 0016 to 0026, and in the Ship and deploy grilling the same day (`docs/adr/0007-ship-and-deploy-from-the-portal.md`). Both are drawn in the FigJam board Warehaus Studio, UserFlows section 4. Until each milestone below ships, the code works as described above.
+Settled with Peter in the milestone lifecycle grilling on 2026-11-26: Portal project decisions 0016 to 0026, in the Ship and deploy grilling the same day (`docs/adr/0007-ship-and-deploy-from-the-portal.md`), and in the Shipped and Deploy to main grilling on 2026-11-27 (`docs/adr/0009-shipped-merges-deploy-to-main.md`), which replaces the Ship and deploy button. The first two are drawn in the FigJam board Warehaus Studio, UserFlows section 4. Until each milestone below ships, the code works as described above.
 
 - On a visual milestone, a Product Design Lead check runs as a runner job at Ready to Ship; Peter's approval Ask opens on pass. Milestone: Product Design Lead check.
-- A merge ships only an approved milestone. Bots and the staff API cannot set Shipped. Milestone: Approval gates Shipped.
 - A status change has the same effects whichever path makes it, requested changes always go to Building as top-level iteration tasks, and a milestone's tasks follow its status. Milestone: Same effects on every status path.
-- Every entry into Ready to Ship starts the staff Vercel preview, and its link reaches the production milestone. Milestone: Staff preview on every Ready to Ship.
-- Ship and deploy (ADR-0007): at Ready to Ship, Peter's press of the Ship and deploy button in the Portal counts as his approval, the merge and "deploy main" for that milestone. The GitHub `ship` workflow then merges and deploys; agents still never deploy themselves. On this path only, Shipped means deployed; a merge by hand still sets Shipped and shows Not deployed. Warehaus Portal project only, until other projects have a deploy setting. Milestone: Ship and deploy.
+- Preview link on the tile (ADR-0009): every entry into Ready to Ship starts the Vercel branch preview, pushes the branch's Convex code to shared dev `graceful-mastiff-960`, and writes the link to the production milestone's tile. Peter then approves from that link, and the local preview becomes optional. The preview is kept until Shipped. Milestone: Preview link on the tile.
+- Shipped merges (ADR-0009): only Peter moves a milestone with an open pull request to Shipped, in the Portal, and that move is his approval and the merge. A GitHub workflow merges `main` into the branch, runs the checks and squash-merges; a failure adds a task and sends the milestone back to Building. Bots, the staff API and other staff cannot set Shipped on such a milestone. A merged milestone cannot leave Shipped. Milestone: Shipped merges the pull request.
+- Deploy to main (ADR-0009): a counter of Shipped milestones not yet deployed and a Deploy to main button on the project page. Only Peter presses it; a GitHub workflow deploys Convex then Vercel from one `main` commit, and the Portal stores the deployed commit. Once built it is the only production deploy path: "deploy main" in chat is retired and agents never deploy. Warehaus Portal project only, until other projects have a deploy setting. Milestone: Deploy to main.
 
 ### Convex
 

@@ -47,20 +47,36 @@ The order a milestone's tasks are worked in: the To Do column of its task board,
 _Avoid_: task order, queue, priority
 
 **Milestone branch**:
-The one branch a milestone's code lives on, `milestone/<slug>`. Every task commits straight to it, and it has one pull request into `main`. At Ready to Ship every task is on it, and the local preview runs from it.
+The one branch a milestone's code lives on, `milestone/<slug>`. Every task commits straight to it, and it has one pull request into `main`. At Ready to Ship every task is on it, and its previews run from it.
 _Avoid_: feature branch, task branch, sub-branch
 
-**Ship and deploy**:
-The button at Ready to Ship that only Peter can press, in the Portal, after a confirm step. It counts as his approval, the merge and "deploy main" for that milestone. It shows only when the milestone has an open pull request into `main` and its project has a deploy setting (Warehaus Portal for now). ADR-0007.
-_Avoid_: release button, deploy button, ship it
+**Ship**:
+Peter's move of a milestone to Shipped in the Portal, after a confirm step. For a milestone with an open pull request it merges that pull request into `main`, counts as his approval, and deploys nothing. Only Peter can do it. ADR-0009.
+_Avoid_: Ship and deploy (the one-press button from ADR-0007, replaced), release, ship it
 
-**Ship run**:
-One run of the GitHub `ship` workflow that Ship and deploy starts: check the merged code, squash-merge, then deploy Convex and Vercel from one commit. A project has at most one at a time. A failed ship run shows its step, opens an Ask on Peter, and Retry resumes from the step that failed.
-_Avoid_: deploy job, release pipeline
+**Merge run**:
+One run of the GitHub workflow that Ship starts: merge `main` into the milestone branch, check the merged code, then squash-merge. The milestone shows Shipped only when it succeeds. A failed merge run adds a task and sends the milestone back to Building.
+_Avoid_: ship run, release pipeline
+
+**Deploy to main**:
+The button on a project's page that only Peter can press, after a confirm step. It deploys `main` to production, which releases every Shipped milestone not yet deployed. Next to it a counter shows how many are waiting. It shows only on a project with a deploy set up (Warehaus Portal for now). ADR-0009.
+_Avoid_: deploy button, release button, "deploy main" in chat (retired once the button is built)
+
+**Deploy run**:
+One run of the GitHub workflow that Deploy to main starts: deploy Convex, then Vercel, from one `main` commit. A project has at most one at a time. A failed deploy run opens an Ask on Peter, and Retry runs it again from the same commit.
+_Avoid_: deploy job, ship run
+
+**Deploy notes**:
+What a milestone's release needs beyond its code, such as a new table, a new secret or a one-off migration. The runner writes them at Ready to Ship and staff can edit them. A note can mark a manual step, which Peter must tick in the Deploy to main confirm step before the button works.
+_Avoid_: release notes, changelog
 
 **Deployed commit**:
-The `main` commit a project's production is running, saved by each successful ship run. Every milestone merged at or before it counts as deployed; a milestone merged later shows Not deployed.
+The `main` commit a project's production is running, saved by each successful deploy run. Every milestone merged at or before it counts as deployed.
 _Avoid_: release, live version
+
+**Not deployed**:
+The mark staff see on a Shipped milestone whose merge is later than the deployed commit. These are what the Deploy to main counter counts. Clients see such a milestone as Ready to Ship until it is deployed.
+_Avoid_: pending release, unreleased
 
 ## Tasks
 

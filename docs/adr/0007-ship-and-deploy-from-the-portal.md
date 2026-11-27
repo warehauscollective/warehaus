@@ -1,6 +1,6 @@
 # ADR-0007: Ship and deploy from the Portal
 
-Status: Accepted, Peter, 2026-11-26. Settled in a grilling session in Claude Code on 2026-11-26: Peter answered "yes to all" to three rounds (Q1 to Q20), then confirmed the summary with "Yes, record it". The work is tracked in the Portal milestone "Ship and deploy" (Warehaus Portal). No build until his go.
+Status: Partly replaced by ADR-0009 (Peter, 2026-11-27). The Ship and deploy button and decisions 2, 3 and 12 are replaced: moving a milestone to Shipped merges it, and a separate Deploy to main button deploys. Decisions 8 to 11, 13, 14 and 16 are reused there. Originally: Accepted, Peter, 2026-11-26. Settled in a grilling session in Claude Code on 2026-11-26: Peter answered "yes to all" to three rounds (Q1 to Q20), then confirmed the summary with "Yes, record it". The work is tracked in the Portal milestone "Ship and deploy" (Warehaus Portal). No build until his go.
 
 ## Context
 
