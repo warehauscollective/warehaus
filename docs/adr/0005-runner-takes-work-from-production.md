@@ -2,6 +2,8 @@
 
 Status: Accepted, Peter, 2026-11-24. Peter answered "Yes to all" to both grilling rounds on the Auto-planning and agent choice milestone, then confirmed the summary with "Yes, set it up". The work is tracked in the Portal milestone "Runner on production".
 
+Later decisions: Portal project decisions 0016 to 0026 (milestone lifecycle grilling, 2026-11-26) change parts of this record once their milestones ship. `AGENTS.md`, "Decided, not built yet", lists them.
+
 ## Context
 
 ADR-0001 kept the runner on shared dev `graceful-mastiff-960`. The runner refuses any `unique-turtle-383` URL, and only dev has `RUNNER_TOKENS`. Staff, Grok Bot and Peter all track milestones in the production Portal. So on production a milestone that enters Planning is queued and never planned, and a milestone in Building never moves. Whatever a runner does on dev stays in dev's data.
