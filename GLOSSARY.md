@@ -60,6 +60,22 @@ _Avoid_: release, live version
 An edit to one or more fields of one task by staff, the staff API, a merged pull request, or closeout. A task change is saved in the portal at once and holds against any older Notion edit. When the task has a Notion page and write-back is allowed, it is also written back; otherwise it stays in the portal and says so. A task change is checked whole: every field is saved, or none.
 _Avoid_: task update, field save, task write, move
 
+**Task kind**:
+Design or Build. A design task works in Figma and never changes code; a build task changes code. A task with no kind reads as Build. ADR-0008.
+_Avoid_: task type, design flag
+
+**Visual milestone**:
+A milestone with at least one design task that is top level, not archived and not Parked. Its build tasks wait for design approval.
+_Avoid_: design milestone, UI milestone
+
+**Design approval**:
+Peter's Approve designs on a visual milestone. It records who and when, unlocks build and closes the Approve designs Ask. It never moves Status, merges or deploys. Request design changes is the other answer: it adds design tasks and keeps build locked.
+_Avoid_: design sign-off, design review
+
+**Building phase**:
+What Building shows after it on a visual milestone: Designs while a design task is open, Waiting on design approval once they are all done, then plain Build. Derived from the tasks and the approval, never stored.
+_Avoid_: build stage, design status
+
 **Pending stage**:
 A task's stage that a task change moved and Notion has not confirmed yet. It stays pending until Notion confirms it, a newer Notion edit replaces it, or a move back onto the stage Notion has settles it. Only a stage can be pending; other fields are protected by their stamp.
 _Avoid_: unsynced stage, stage draft

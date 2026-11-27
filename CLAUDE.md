@@ -11,7 +11,7 @@
 Approved by Peter in Grok Bot (Portal room), 2026-11-17, 11:46 AM ET. Canonical writeup: `AGENTS.md`. Cursor rule: `.cursor/rules/milestone-build-protocol.mdc`.
 
 - Every change belongs to a Portal milestone or a task inside one. One PR per milestone: it names the milestone and carries every task's commits.
-- Design tasks come first, in Dark and Light at 1440 and 390. Peter approves design in Grok Bot or the Portal before build. In the Portal that is the Approve designs button in the tile's Status box; today it records the approval and puts a line in the runner's prompt, but is not yet a gate (decision 0016).
+- Design tasks come first, in Dark and Light at 1440 and 390. Peter approves design in Grok Bot or the Portal before build. In the Portal that is Approve designs in the tile's Status box, or Request design changes beside it. The runner enforces it: on a milestone with a design task it builds nothing until the designs are approved (ADR-0008).
 - Dev updates: when the runner builds, its feed events are the dev updates. An agent working outside the runner posts a milestone note with the next action and the PR link.
 - A milestone has one Status (Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, Parked). Staff can set Shipped when every task that is not Parked is Done. The play button never moves to Shipped. Awaiting Go means the plan waits for staff Go. Shipped means merged, never deployed. Approval is the separate review result.
 - Product Design Lead checks the build against Figma from screenshots, then Peter previews.
