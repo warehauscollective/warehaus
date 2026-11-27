@@ -1,6 +1,8 @@
 /**
  * Review-time Vercel previews for one milestone.
- * Shared dev graceful-mastiff-960 only. Production unique-turtle-383 is refused.
+ * The preview always builds against shared dev graceful-mastiff-960, never
+ * production unique-turtle-383. Production only stores the preview link on its
+ * own milestone (ADR-0009 decision 2); see `reviewPreviewRouteScope`.
  * Preview state stays on the milestone. Clients never receive it.
  */
 
@@ -109,6 +111,51 @@ export function assertReviewConvexUrl(
     cloud: `https://${SHARED_DEV_CLOUD_HOST}`,
     site: `https://${SHARED_DEV_SITE_HOST}`,
   };
+}
+
+/** What the `/review-preview` route accepts on the deployment it runs on. */
+export type ReviewPreviewRouteScope = 'all' | 'link';
+
+export const PREVIEW_ROUTE_WRONG_DEPLOYMENT = 'Review previews are stored on shared dev and production only';
+export const PREVIEW_ROUTE_LINK_ONLY = 'Production stores the preview link only';
+
+/**
+ * Shared dev takes every write: the link, the local preview and the close.
+ * Production takes the link only, so a real milestone's tile can show it
+ * (ADR-0009 decision 2). Any other deployment is refused.
+ */
+export function reviewPreviewRouteScope(cloudUrl: string | undefined | null): ReviewPreviewRouteScope | null {
+  if (assertReviewConvexUrl(cloudUrl).ok) return 'all';
+  let parsed: URL;
+  try {
+    parsed = new URL(cloudUrl?.trim() ?? '');
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:' || parsed.host !== `${PRODUCTION_DEPLOYMENT}.convex.cloud`) return null;
+  return 'link';
+}
+
+/**
+ * A link write is the build of the Vercel preview: building, ready with its
+ * URL, or failed. It has no `op`. The local preview, the close and `removed`
+ * are not link writes.
+ */
+export function isPreviewLinkWrite(body: { op?: unknown; state?: unknown }): boolean {
+  if (body.op != null) return false;
+  return body.state === 'building' || body.state === 'ready' || body.state === 'failed';
+}
+
+/**
+ * A preview is stored for the milestone's current iteration. A build that
+ * names another iteration is stale and is refused. No iteration means current.
+ */
+export function previewIterationDecision(input: {
+  given: number | null | undefined;
+  current: number;
+}): { ok: true } | { ok: false; reason: string } {
+  if (input.given == null || input.given === input.current) return { ok: true };
+  return { ok: false, reason: `Preview is for iteration ${input.given}; the milestone is on iteration ${input.current}` };
 }
 
 export function assertPreviewAppUrl(

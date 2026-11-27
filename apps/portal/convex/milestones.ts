@@ -133,7 +133,12 @@ import {
   PREVIEW_READY_ACTIVITY,
   VERCEL_TEAM_ID,
   assertReviewConvexUrl,
+  PREVIEW_ROUTE_LINK_ONLY,
+  PREVIEW_ROUTE_WRONG_DEPLOYMENT,
   authorizeReviewPreview,
+  isPreviewLinkWrite,
+  previewIterationDecision,
+  reviewPreviewRouteScope,
   deleteVercelDeployment,
   previewDeleteAfterFailure,
   previewDeletedActivity,
@@ -1722,6 +1727,8 @@ export const setReviewPreview = internalMutation({
   handler: async (ctx, args) => {
     const milestone = await ctx.db.get(args.milestoneId);
     if (!milestone) return { ok: false as const, reason: 'Milestone not found' };
+    const fresh = previewIterationDecision({ given: args.iteration, current: currentIteration(milestone.iteration) });
+    if (!fresh.ok) return { ok: false as const, reason: fresh.reason };
     const result = reviewPreviewSetPatch({
       current: previewRecord(milestone),
       next: {
@@ -2084,9 +2091,16 @@ export const setLocalPreview = internalMutation({
   },
 });
 
+/**
+ * Stores preview state sent by the portal-review-preview workflow, signed with
+ * REVIEW_PREVIEW_SECRET. Shared dev takes every write. Production takes the
+ * preview link only, for the milestone's current iteration, so the tile of a
+ * real milestone can show it (ADR-0009 decision 2). The preview itself still
+ * runs against shared dev.
+ */
 export const reviewPreviewHttp = httpAction(async (ctx, request) => {
-  const cloud = assertReviewConvexUrl(process.env.CONVEX_CLOUD_URL);
-  if (!cloud.ok) return new Response('Review previews run on shared dev only', { status: 403 });
+  const scope = reviewPreviewRouteScope(process.env.CONVEX_CLOUD_URL);
+  if (!scope) return new Response(PREVIEW_ROUTE_WRONG_DEPLOYMENT, { status: 403 });
   const auth = authorizeReviewPreview({
     configuredSecret: process.env.REVIEW_PREVIEW_SECRET,
     authorizationHeader: request.headers.get('authorization'),
@@ -2113,6 +2127,8 @@ export const reviewPreviewHttp = httpAction(async (ctx, request) => {
   } catch {
     return new Response('Invalid JSON', { status: 400 });
   }
+  if (!body || typeof body !== 'object') return new Response('Invalid JSON', { status: 400 });
+  if (scope === 'link' && !isPreviewLinkWrite(body)) return new Response(PREVIEW_ROUTE_LINK_ONLY, { status: 403 });
   if (local.op === 'local') {
     if (!local.milestoneId && !local.branch) return new Response('Milestone id or branch is missing', { status: 400 });
     const result = await ctx.runMutation(internal.milestones.setLocalPreview, {

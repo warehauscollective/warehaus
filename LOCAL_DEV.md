@@ -108,13 +108,13 @@ The only approved Vercel production path is a manual `vercel deploy --prod` from
 
 ## Review preview secrets
 
-Three names. No values belong in the repo, a doc, or chat. Do not set any of them on production `unique-turtle-383`. Without `VERCEL_TOKEN` and `REVIEW_PREVIEW_SECRET`, the preview workflow and the close job do nothing and exit cleanly.
+Three names. No values belong in the repo, a doc, or chat. `VERCEL_TOKEN` is never set on production `unique-turtle-383`. `REVIEW_PREVIEW_SECRET` and `REVIEW_PREVIEW_GITHUB_TOKEN` are also set there by Peter, so a production milestone can start its preview and receive the link (ADR-0009 decision 2). Without `VERCEL_TOKEN` and `REVIEW_PREVIEW_SECRET`, the preview workflow and the close job do nothing and exit cleanly.
 
 | Name | Where it goes | Minimal scope |
 | --- | --- | --- |
 | `VERCEL_TOKEN` | GitHub Actions secret on `warehauscollective/warehaus`, read by `.github/workflows/portal-review-preview.yml`, and Convex env on the shared dev deployment only | Create and delete deployments on Vercel project `warehaus-portal` only. The workflow uses the GitHub secret. Retry and the scheduled delete read the Convex env. A missing Convex value is a terminal delete failure and does not retry. Not a production deploy, and not a token for any other project. |
-| `REVIEW_PREVIEW_SECRET` | The same GitHub Actions secret, and Convex env on the shared dev deployment only (`npx convex env set` from `apps/portal`) | Bearer shared by that workflow and the `/review-preview` HTTP action. It authorizes preview state writes. It is not a Notion token and not a user password. |
-| `REVIEW_PREVIEW_GITHUB_TOKEN` | Convex env on the shared dev deployment only | Fine-grained GitHub token that can dispatch `portal-review-preview.yml` on this repo (`actions: write`). No contents write, no other repos. |
+| `REVIEW_PREVIEW_SECRET` | The same GitHub Actions secret, and Convex env on shared dev (`npx convex env set` from `apps/portal`) and on production (set by Peter) | Bearer shared by that workflow and the `/review-preview` HTTP action. It authorizes preview state writes. Shared dev takes every write. Production takes the preview link only (building, ready with its URL, failed) for the milestone's current iteration, and refuses the local preview and the close with 403. While it is unset on a deployment the route answers 503. It is not a Notion token and not a user password. |
+| `REVIEW_PREVIEW_GITHUB_TOKEN` | Convex env on shared dev and on production (set by Peter) | Fine-grained GitHub token that can dispatch `portal-review-preview.yml` on this repo (`actions: write`). No contents write, no other repos. |
 
 The workflow's built-in `GITHUB_TOKEN` is separate. It only reads the pull request. It is not one of these three.
 
