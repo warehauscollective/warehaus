@@ -205,8 +205,10 @@ describe('milestone review fixes', () => {
       laneDone: 1,
       nested: 0,
     });
-    assert.match(roadmap, /const board = boardCountsFromTasks\(shownTasks\)/);
-    assert.match(roadmap, /label: `Tasks · \$\{board\.lanes\}`/);
+    // The milestone page counts from the milestone's rows, not the snapshot tasks.
+    assert.match(roadmap, /const board = boardTaskCounts\(milestone\)/);
+    assert.match(roadmap, /label: tasksTabLabel\(milestone\)/);
+    assert.doesNotMatch(roadmap, /boardCountsFromTasks/);
   });
 
   it('traps dialog focus and restores it on close', () => {

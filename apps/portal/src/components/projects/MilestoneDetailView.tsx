@@ -26,7 +26,6 @@ import {
 } from './milestoneChrome';
 import {
   activityForMilestone,
-  boardCountsFromTasks,
   goalKey,
   MENU_ERROR_ID,
   milestoneResourceChoices,
@@ -35,7 +34,7 @@ import {
   storedMilestoneReview,
   tabIds,
 } from './milestoneGuards';
-import { type RoadmapProject, type MilestoneActivityItem, type ResourceChoice, type FixturePatch, lastReviewLabel, resourceAudienceLine, taskTotal, boardTaskCounts, nestedCopy, milestoneDetachOptions, inclusiveProgressCopy, milestoneTasks, fixtureOwnerChoices } from './milestoneTile';
+import { type RoadmapProject, type MilestoneActivityItem, type ResourceChoice, type FixturePatch, lastReviewLabel, resourceAudienceLine, taskTotal, boardTaskCounts, nestedCopy, milestoneDetachOptions, inclusiveProgressCopy, fixtureOwnerChoices } from './milestoneTile';
 import { ActivityList } from './roadmapParts';
 import { MoreMenu, EditDialog } from './MilestoneForms';
 import { MilestoneLoopLive, fixtureLoopModel, loopSubtitleLine, milestoneLoopSubtitle } from './MilestoneLoop';
@@ -55,6 +54,19 @@ export function tasksSubtitle(input: { count: number; phone: boolean }): string 
   const base = 'Work needed to complete this milestone';
   if (input.phone) return base;
   return `${base} · ${input.count === 1 ? '1 task' : `${input.count} tasks`}`;
+}
+
+/**
+ * The Tasks tab label. It counts the milestone's rows, the same rows the board
+ * draws its cards from, so a task missing from the portal snapshot still counts.
+ */
+export function tasksTabLabel(milestone: MilestoneRoadmapView): string {
+  return `Tasks · ${boardTaskCounts(milestone).lanes}`;
+}
+
+/** The overview Tasks panel. While Building, tasks show on the Tasks tab board only. */
+export function showsOverviewTasksPanel(status: MilestoneRoadmapView['status']): boolean {
+  return status !== 'Building';
 }
 
 type MilestoneMutations = {
@@ -318,9 +330,8 @@ export function MilestoneDetailView({
   const tasksPage = tab === 'tasks';
   const locked = milestone.approval === 'approved';
   const total = taskTotal(milestone);
-  const recordBoard = boardTaskCounts(milestone);
-  const shownTasks = milestoneTasks(tasks, milestone);
-  const board = boardCountsFromTasks(shownTasks);
+  // Lane counts come from the milestone's rows, the rows the board draws.
+  const board = boardTaskCounts(milestone);
   const storedReview = storedMilestoneReview(milestone);
   const milestoneActivity = activityForMilestone(activity, milestone.id);
   const choices = milestoneResourceChoices(
@@ -426,7 +437,7 @@ export function MilestoneDetailView({
           if (frame?.subtitle) return loopSubtitleLine(frame.subtitle, frame.desktopStamp);
           const live = staff ? milestoneLoopSubtitle(milestone) : null;
           if (live) return loopSubtitleLine(live.text, undefined, live.updatedAt);
-          return `Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}`;
+          return `Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, board.nested)}`;
         })()}
         action={staff && closeout ? <span data-testid="milestone-header-overflow" className="inline-flex">{closeout}</span> : undefined}
       />
@@ -438,7 +449,7 @@ export function MilestoneDetailView({
         onChange={(id) => setTab(id as MilestoneTab)}
         tabs={[
           { id: 'overview', label: 'Overview' },
-          { id: 'tasks', label: `Tasks · ${board.lanes}` },
+          { id: 'tasks', label: tasksTabLabel(milestone) },
           ...(staff ? [{ id: 'reviews' as const, label: `Reviews · ${milestone.review?.history.length ?? 0}` }] : []),
           { id: 'activity', label: 'Activity' },
         ]}
@@ -476,11 +487,12 @@ export function MilestoneDetailView({
                 </p>
               )}
             </Panel>
+            {showsOverviewTasksPanel(milestone.status) ? (
             <Panel>
               <div className="flex flex-col items-start gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 style={{ fontSize: 18, lineHeight: '27px', fontWeight: 500 }}>
-                    {inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}
+                    {inclusiveProgressCopy(milestone.doneCount, total, board.nested)}
                   </h2>
                   <p style={{ marginTop: 8, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
                     Work comes from this milestone’s brief and reviews.
@@ -490,13 +502,14 @@ export function MilestoneDetailView({
                     {' complete. '}
                     <span data-testid="milestone-open-count">{milestone.openCount}</span>
                     {' still open.'}
-                    {recordBoard.nested > 0 ? ` ${nestedCopy(recordBoard.nested)}` : ''}
+                    {board.nested > 0 ? ` ${nestedCopy(board.nested)}` : ''}
                     {' The open count is not the decision.'}
                   </p>
                 </div>
                 <OutlineButton nowrap onClick={() => setTab('tasks')}>View tasks · {board.lanes}</OutlineButton>
               </div>
             </Panel>
+            ) : null}
             <Panel>
               <div className="flex items-center justify-between gap-4">
                 <h2 style={{ fontSize: 20, lineHeight: '30px', fontWeight: 500 }}>

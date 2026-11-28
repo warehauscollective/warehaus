@@ -618,3 +618,29 @@ describe('card face', () => {
     assert.deepEqual(milestoneNestedToOpen({ ...input, taskId: 'b1' }), []);
   });
 });
+
+describe('milestone page task counts', async () => {
+  const { tasksTabLabel, tasksSubtitle, showsOverviewTasksPanel } = await import('./MilestoneDetailView');
+  const { boardTaskCounts } = await import('./milestoneTile');
+  const { MILESTONE_STATUSES } = await import('@convex/_lib/milestoneStatus');
+
+  it('counts the Tasks tab from the milestone rows, with no snapshot tasks', () => {
+    const five = milestone('Building');
+    assert.equal(five.rows.length, 5);
+    // The board draws one card per row from an empty tasks array; the label counts the same rows.
+    assert.equal(milestoneBoardCards(five.rows, [], project).filter((card) => !card.parentTaskId).length, 5);
+    assert.equal(tasksTabLabel(five), 'Tasks · 5');
+    assert.equal(
+      tasksSubtitle({ count: boardTaskCounts(five).lanes, phone: false }),
+      'Work needed to complete this milestone · 5 tasks',
+    );
+    assert.equal(tasksTabLabel(milestone('Planning', [])), 'Tasks · 0');
+  });
+
+  it('hides the overview Tasks panel while Building only', () => {
+    assert.equal(showsOverviewTasksPanel('Building'), false);
+    for (const status of MILESTONE_STATUSES.filter((value) => value !== 'Building')) {
+      assert.equal(showsOverviewTasksPanel(status), true, status);
+    }
+  });
+});
