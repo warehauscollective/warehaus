@@ -159,6 +159,8 @@ describe('fixture roadmap', () => {
     assert.equal(links[0]?.localPreviewUrl, 'http://localhost:3200');
     assert.equal(links[0]?.figmaUrl, 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Portal');
     assert.equal(links[1]?.figmaUrl ?? null, null);
+    assert.equal(links[0]?.figmaFrameUrls?.length, 3);
+    assert.equal(links[1]?.figmaFrameUrls, undefined);
     assert.equal(links[1]?.localPreviewUrl ?? null, null);
     const ready = applyFixtureMilestonePreview(staff, '?tiles=ready');
     assert.equal(ready[0]?.review?.previewUrl, 'https://warehaus-portal-git-order-ahead-warehaus-collective.vercel.app');

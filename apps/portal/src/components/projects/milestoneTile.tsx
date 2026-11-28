@@ -57,6 +57,7 @@ export type FixturePatch = Partial<
     | 'creatorName'
     | 'localPreviewUrl'
     | 'figmaUrl'
+    | 'figmaFrameUrls'
   >
 > & {
   attachedIds?: string[];

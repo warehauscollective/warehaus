@@ -106,3 +106,19 @@ export function figmaFrameUrlsAfter(stored: readonly string[] | undefined, repor
   if (kept.length === current.length && kept.every((url, index) => url === current[index])) return null;
   return kept;
 }
+
+/**
+ * The label on one stored frame link in the Details panel. A stored link
+ * carries no frame name, so the label is the frame's node id from the URL
+ * ("Frame 1352:49584"), or its place in the list when the URL has none.
+ */
+export function figmaFrameLabel(url: string, index: number): string {
+  let node: string | null = null;
+  try {
+    node = new URL(url).searchParams.get('node-id');
+  } catch {
+    node = null;
+  }
+  const match = node ? /^(\d+)[-:](\d+)$/.exec(node.trim()) : null;
+  return match ? `Frame ${match[1]}:${match[2]}` : `Frame ${index + 1}`;
+}

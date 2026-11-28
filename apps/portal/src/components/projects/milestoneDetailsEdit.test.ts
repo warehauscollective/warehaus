@@ -377,6 +377,36 @@ describe('milestone details panel', () => {
     assert.equal(approvalNeedsYou({ milestone: { ...waiting, review: decided }, viewerEmail: email }), null);
   });
 
+  it('lists the Figma frame links for staff and sends clients nothing', () => {
+    const frames = [
+      'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=1352-10004',
+      'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio',
+    ];
+    const linked = { ...milestone, figmaUrl: 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Portal', figmaFrameUrls: frames } as MilestoneRoadmapView;
+    const staff = view({ staff: true, milestone: linked });
+    const first = staff.match(/<a [^>]*data-testid="milestone-figma-frame-link-0"[^>]*>[\s\S]*?<\/a>/)?.[0] ?? '';
+    assert.match(first, /href="https:\/\/www\.figma\.com\/design\/TS3DcaCgrIdYf0jhvnMy3k\/Warehaus-Studio\?node-id=1352-10004"/);
+    assert.match(first, /target="_blank"/);
+    assert.match(first, /rel="noreferrer"/);
+    assert.match(first, />Frame 1352:10004</);
+    const second = staff.match(/<a [^>]*data-testid="milestone-figma-frame-link-1"[^>]*>[\s\S]*?<\/a>/)?.[0] ?? '';
+    assert.match(second, />Frame 2</);
+    assert.match(staff, /From finished design tasks/);
+    // The hand-set link keeps its own edit and Clear.
+    assert.match(staff, /data-testid="milestone-figma-edit"/);
+    assert.match(staff, /data-testid="milestone-figma-edit-clear"/);
+
+    const none = view({ staff: true });
+    assert.doesNotMatch(none, /milestone-figma-frames/);
+    assert.doesNotMatch(none, /From finished design tasks/);
+    assert.match(none, /Set Figma link/);
+
+    const client = view({ staff: false, milestone: linked });
+    assert.doesNotMatch(client, /milestone-figma-frame/);
+    assert.doesNotMatch(client, /From finished design tasks/);
+    assert.doesNotMatch(client, /node-id=1352-10004/);
+  });
+
   it('hides approval and the review button from a client', () => {
     const html = view({
       staff: false,

@@ -336,6 +336,11 @@ export function applyFixtureMilestonePreview(
         ...milestone,
         localPreviewUrl: 'http://localhost:3200',
         figmaUrl: 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Portal',
+        figmaFrameUrls: [
+          'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=1352-10004',
+          'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=1352-49584',
+          'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=1158-42100',
+        ],
         ...(ready ? { review: readyTileReview() } : {}),
       };
     });

@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import type { Id } from '@convex/_generated/dataModel';
 import { assertStaffPreviewLink, PREVIEW_LINK_LOCAL } from '@convex/_lib/previewLink';
-import { localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@convex/_lib/tileLinks';
+import { figmaFrameLabel, localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@convex/_lib/tileLinks';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { clientSeesDetailsRow, formatDueDate, textBlurSave } from '@convex/_lib/milestoneDetails';
 import { shippedLockedReason, shippedOpenTag } from '@convex/_lib/closeout';
@@ -1004,6 +1004,7 @@ function TileLinkRows({
             </div>
           </div>
         ) : null}
+        {next === 'figma' ? <FigmaFrameLinks urls={milestone.figmaFrameUrls} /> : null}
       </DetailRow>
     );
   };
@@ -1012,6 +1013,40 @@ function TileLinkRows({
       {row('localPreview', 'LOCAL PREVIEW', 'milestone-local-preview-edit', 'Set local preview')}
       {row('figma', 'FIGMA', 'milestone-figma-edit', 'Set Figma link')}
     </>
+  );
+}
+
+/**
+ * Frame links from finished design tasks, Figma Molecule/FigmaLinksRow
+ * 1352:49584 (State=multiple). Staff only: the query sends clients no key.
+ * Read-only; Set Figma link and Clear act on the hand-set link above.
+ */
+function FigmaFrameLinks({ urls }: { urls?: readonly string[] }) {
+  if (!urls?.length) return null;
+  return (
+    <div data-testid="milestone-figma-frames" className="flex flex-col" style={{ marginTop: 6, gap: 6, padding: '0 8px' }}>
+      {urls.map((url, index) => (
+        <a
+          key={url}
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          data-testid={`milestone-figma-frame-link-${index}`}
+          className="flex items-center"
+          style={{ gap: 6, minWidth: 0, color: 'var(--fg)', fontSize: 14, lineHeight: '21px', textDecoration: 'none' }}
+        >
+          <span className="flex" style={{ color: 'var(--muted)' }}>
+            <TaskGlyph src="/icons/figma.svg" size={14} />
+          </span>
+          <span style={{ flex: '1 0 0', minWidth: 0, overflowWrap: 'anywhere', textDecoration: 'underline', textUnderlinePosition: 'from-font' }}>
+            {figmaFrameLabel(url, index)}
+          </span>
+        </a>
+      ))}
+      <p className="ds-mono" style={{ margin: 0, fontSize: 10, lineHeight: '14px', color: 'var(--muted)' }}>
+        From finished design tasks
+      </p>
+    </div>
   );
 }
 
