@@ -6,7 +6,9 @@ import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { buildTaskState, FEED_LABEL, type AgentEventType, type RunTool } from '@convex/_lib/agentRun';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
+import { FIX_RERUN, blockedCause, causeFix, fixLabel, type CauseFix } from '@convex/_lib/troubleshoot';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
+import { requestTroubleshootFocus } from '@/components/tasks/troubleshootFocus';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { UPDATED_STAMP_TICK_MS, updatedStampText } from '@/lib/data/updatedStamp';
@@ -17,7 +19,8 @@ export const LOOP_AWAITING = 'Move to Awaiting Go';
 export const LOOP_TRY = 'Try again';
 /** Drafted card: archive the planner's drafts and plan again (ADR-0005). */
 export const LOOP_REGENERATE = 'Regenerate';
-export const LOOP_RETRY = 'Retry';
+/** A Blocked task row's fix, and the card's own button when the block is not on a task. */
+export const LOOP_RERUN = FIX_RERUN;
 export const LOOP_GENERATING_REASON = 'Tasks are still being drafted.';
 export const LOOP_EMPTY_REASON = 'Add at least one task before moving to Awaiting Go.';
 export const LOOP_FAILED_REASON = 'Tasks couldn’t be drafted. Try again, or add a task yourself.';
@@ -42,6 +45,8 @@ export type LoopTask = {
   done?: boolean;
   /** The task the agent is on now. A blue mark leads the row. */
   current?: boolean;
+  /** A Blocked task's one fix: Rerun, or Answer and rerun for Needs input. */
+  fix?: CauseFix;
 };
 
 export type LoopEvent = { time: string; type: string; summary: string };
@@ -70,6 +75,7 @@ export type LoopModel = {
   tryAgain: boolean;
   /** Drafted: archive the planner's drafts and plan again. */
   regenerate?: boolean;
+  /** Rerun on the card itself: a blocked run with no Blocked task to rerun, such as a planning run. */
   retry: boolean;
   /** Page subtitle without the desktop-only stamp. */
   subtitle?: string;
@@ -226,7 +232,7 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
       branchLine: 'milestone/client-experience-launch · last seen 4:00 PM ET',
       tasks: tasks.map((task, index) => {
         if (index < 3) return { ...task, meta: `Done · ${['4c1e9aa', '7d02b1f', '91ae3c0'][index]}`, done: true };
-        if (index === 3) return { ...task, meta: 'Blocked · runner stopped responding', metaTone: 'danger' };
+        if (index === 3) return { ...task, meta: 'Blocked · runner stopped responding', metaTone: 'danger', fix: 'rerun' };
         return { ...task, meta: 'To do' };
       }),
       taskSummary: '3 done · 1 blocked · 2 to do',
@@ -234,7 +240,7 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
       addTask: false,
       awaiting: 'hidden',
       tryAgain: false,
-      retry: true,
+      retry: false,
       subtitle: 'Milestone · Run blocked',
       desktopStamp: LOOP_UPDATED,
     };
@@ -323,8 +329,9 @@ const editField: CSSProperties = {
 };
 
 /**
- * Staff loop card for Planning and Building. Retry is the only blocked action.
- * Ready to Ship stays with the runner.
+ * Staff loop card for Planning and Building. A blocked run's action is Rerun,
+ * on each Blocked task's row (Answer and rerun for Needs input, which opens
+ * the task). Ready to Ship stays with the runner.
  */
 export function MilestoneLoopView({
   model,
@@ -333,6 +340,7 @@ export function MilestoneLoopView({
   onTryAgain,
   onRegenerate,
   onRetry,
+  onFix,
   onAdd,
   onRename,
 }: {
@@ -342,6 +350,8 @@ export function MilestoneLoopView({
   onTryAgain?: () => void;
   onRegenerate?: () => void;
   onRetry?: () => void;
+  /** A Blocked task row's fix. */
+  onFix?: (task: LoopTask) => void;
   onAdd?: (title: string) => void;
   onRename?: (id: string, title: string) => void;
 }) {
@@ -429,7 +439,7 @@ export function MilestoneLoopView({
               ) : null}
               {model.retry ? (
                 <button type="button" data-testid="milestone-retry" disabled={busy} onClick={onRetry} style={primary}>
-                  {LOOP_RETRY}
+                  {LOOP_RERUN}
                 </button>
               ) : null}
             </div>
@@ -529,6 +539,18 @@ export function MilestoneLoopView({
                     {task.meta}
                   </span>
                 ) : null}
+                {task.fix ? (
+                  <button
+                    type="button"
+                    data-testid="milestone-loop-fix"
+                    data-fix={task.fix}
+                    disabled={busy}
+                    onClick={() => onFix?.(task)}
+                    style={{ ...outline, flex: '0 0 auto', whiteSpace: 'nowrap' }}
+                  >
+                    {fixLabel(task.fix)}
+                  </button>
+                ) : null}
               </div>
             );
           })}
@@ -605,7 +627,7 @@ type Progress = {
   branch: string | null;
   prUrl: string | null;
   run: { status: string; tool: string; blockedReason: string | null; runnerId: string; endedAt: number | null; lastSeenAt: number | null } | null;
-  tasks: { id: string; order: number; title: string; state: string; commit: string | null; blockedReason: string | null }[];
+  tasks: { id: string; order: number; title: string; state: string; commit: string | null; blockedReason: string | null; blockedCause?: string | null }[];
   events: { id: string; type: string; summary: string; at: number }[];
 };
 
@@ -675,9 +697,21 @@ export function liveLoopModel(milestone: MilestoneRoadmapView, progress: Progres
     state: buildTaskState(row),
     commit: row.commit ?? null,
     blockedReason: row.blockedReason ?? null,
-  }))).map((task) => {
+    blockedCause: row.blockedCause ?? null,
+  }))).map((task): LoopTask => {
     if (task.state === 'done') return { id: task.id, order: task.order, title: task.title, meta: task.commit ? `Done · ${task.commit}` : 'Done', done: true };
-    if (task.state === 'blocked') return { id: task.id, order: task.order, title: task.title, meta: `Blocked · ${task.blockedReason || 'the run stopped'}`, metaTone: 'danger' as const };
+    if (task.state === 'blocked') {
+      // A task a person moved to Blocked has no cause and no fix: it waits on them, not on a rerun.
+      const cause = blockedCause(task.blockedCause);
+      return {
+        id: task.id,
+        order: task.order,
+        title: task.title,
+        meta: `Blocked · ${task.blockedReason || 'the run stopped'}`,
+        metaTone: 'danger' as const,
+        ...(cause ? { fix: causeFix(cause) } : {}),
+      };
+    }
     if (task.state === 'in_progress' || task.state === 'claimed') {
       return { id: task.id, order: task.order, title: task.title, meta: cursor ? 'In progress · Cursor' : `In progress${runner ? ` · ${runner}` : ''}`, current: true };
     }
@@ -706,7 +740,8 @@ export function liveLoopModel(milestone: MilestoneRoadmapView, progress: Progres
       addTask: false,
       awaiting: 'hidden',
       tryAgain: false,
-      retry: true,
+      // Each Blocked task has its own Rerun. The card keeps one only when no task carries the block.
+      retry: !tasks.some((task) => task.fix),
       subtitle: 'Milestone · Run blocked',
     };
   }
@@ -817,6 +852,7 @@ export function MilestoneLoopLive({
   actions,
   onStatus,
   loopPreview = null,
+  onOpenTask,
 }: {
   milestone: MilestoneRoadmapView;
   staff: boolean;
@@ -826,6 +862,8 @@ export function MilestoneLoopLive({
   onStatus?: (status: 'Awaiting Go') => void;
   /** Fixture capture. Set after mount from `?loop=`. */
   loopPreview?: string | null;
+  /** Opens a task in the task modal, where Answer and rerun is typed. */
+  onOpenTask?: (taskId: string) => void;
 }) {
   const fixture = loopPreview ? fixtureLoopModel(loopPreview) : null;
   const live = useSafeQuery<Progress | null>(
@@ -836,6 +874,7 @@ export function MilestoneLoopLive({
   );
   const regenerate = useMutation(api.agent.regeneratePlan);
   const retry = useMutation(api.agent.retryBlocked);
+  const rerunTask = useMutation(api.agent.rerunTask);
   const setStatus = useMutation(api.milestones.setStatus);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -849,7 +888,6 @@ export function MilestoneLoopLive({
       .catch((caught: unknown) => setError(userFacingErrorMessage(caught, "Couldn't update the milestone.")))
       .finally(() => setBusy(false));
   };
-  const blocked = model.tasks.find((task) => task.metaTone === 'danger');
   return (
     <>
       <MilestoneLoopView
@@ -872,13 +910,16 @@ export function MilestoneLoopLive({
         }}
         onRetry={() => {
           if (fixtures) return;
-          run(() =>
-            retry({
-              hostSlug,
-              milestoneId: milestone.id as Id<'milestones'>,
-              ...(blocked ? { taskId: blocked.id as Id<'tasks'> } : {}),
-            }),
-          );
+          run(() => retry({ hostSlug, milestoneId: milestone.id as Id<'milestones'> }));
+        }}
+        onFix={(task) => {
+          if (fixtures) return;
+          if (task.fix === 'answer' && onOpenTask) {
+            requestTroubleshootFocus(task.id);
+            onOpenTask(task.id);
+            return;
+          }
+          run(() => rerunTask({ hostSlug, taskId: task.id as Id<'tasks'> }));
         }}
         onAdd={
           actions

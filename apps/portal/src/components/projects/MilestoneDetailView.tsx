@@ -123,6 +123,8 @@ type MilestoneMutations = {
   tasks?: MilestoneTaskActions;
   /** A card's status move on the Tasks board. Absent in fixture previews. */
   moveTaskStatus?: MoveTaskStatus;
+  /** Rerun on a Blocked card (decision 0013). */
+  rerunTask?: (args: { hostSlug?: string; taskId: Id<'tasks'> }) => Promise<unknown>;
 };
 
 export function MilestoneDetail(props: {
@@ -168,6 +170,7 @@ export function MilestoneDetail(props: {
   const removeTask = useMutation(api.milestones.removeTask);
   const reorderTasks = useMutation(api.milestones.reorderTasks);
   const moveTaskStatus = useMutation(api.tasks.moveStatus);
+  const rerunTask = useMutation(api.agent.rerunTask);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadedTargets, setLoadedTargets] = useState<MoveTarget[]>([]);
   const [moveListOpen, setMoveListOpen] = useState(false);
@@ -236,10 +239,19 @@ export function MilestoneDetail(props: {
             loopPreview={loopPreview}
             actions={{ addTask, editTask, removeTask, reorderTasks }}
             onStatus={(status) => props.onFixture({ status })}
+            onOpenTask={
+              props.onOpenTask
+                ? (taskId) => {
+                    const open = { taskId, milestone: props.milestone, tasks: props.tasks, project: props.project };
+                    const task = milestoneTaskToOpen(open);
+                    if (task) props.onOpenTask?.(task, milestoneNestedToOpen(open));
+                  }
+                : undefined
+            }
           />
         ) : null
       }
-      mutations={{ save, setPublish, setStatus, advance, setOwner, setDueDate, setTileLink, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink, tasks: { addTask, editTask, removeTask, reorderTasks }, moveTaskStatus }}
+      mutations={{ save, setPublish, setStatus, advance, setOwner, setDueDate, setTileLink, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink, tasks: { addTask, editTask, removeTask, reorderTasks }, moveTaskStatus, rerunTask }}
     />
   );
 }
@@ -627,6 +639,7 @@ export function MilestoneDetailView({
             hostSlug={hostSlug}
             actions={mutations.tasks}
             moveStatus={mutations.moveTaskStatus}
+            rerunTask={mutations.rerunTask}
             archivedTasks={archivedTasks}
             taskCloseout={taskCloseout}
             onOpenTask={

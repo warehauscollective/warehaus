@@ -60,6 +60,7 @@ import {
   stoppedReason,
   type BlockedCause,
 } from './_lib/agentRun';
+import { TROUBLESHOOT_EVENTS, troubleshootView, type TroubleshootView } from './_lib/troubleshoot';
 import { closeAsk, closeAsksOnMilestone, openAsk, openAsks, openAsksOnMilestone, type AskReason } from './_lib/askStore';
 import { proposedTasksDecision } from './_lib/milestoneBot';
 import { changeMilestoneStatus } from './_lib/milestoneLifecycle';
@@ -1588,9 +1589,54 @@ export const buildingProgress = adminQuery({
           state: buildTaskState(task),
           commit: shortSha(task.lastCommitSha),
           blockedReason: task.blockedReason ?? null,
+          blockedCause: task.blockedCause ?? null,
         })),
       events: events.map((row) => ({ id: row._id, type: eventType(row.type), summary: row.summary, at: row.at })),
     };
+  },
+});
+
+/**
+ * The staff-only Troubleshoot section of the task modal (decision 0012): the
+ * task's cause and reason or its run going, that run's events, the end of a
+ * failed run's output, the branch and the last commit. Null when there is
+ * nothing to troubleshoot. Indexed and capped: the task's newest runs, one
+ * run's newest events and one runner row. Clients have no query here.
+ */
+export const taskTroubleshoot = adminQuery({
+  args: { taskId: v.id('tasks') },
+  handler: async (ctx, args): Promise<TroubleshootView | null> => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task || !task.milestoneId || task.isDone) return null;
+    const runs = await ctx.db
+      .query('agentRuns')
+      .withIndex('by_task', (q) => q.eq('taskId', task._id))
+      .order('desc')
+      .take(TASK_RUN_SCAN);
+    const run = runs.find((row) => row.status === 'running') ?? runs[0] ?? null;
+    if (run?.status !== 'running' && !(task.status === 'Blocked' && task.blockedCause)) return null;
+    const events = run
+      ? await ctx.db
+          .query('agentEvents')
+          .withIndex('by_run', (q) => q.eq('runId', run._id))
+          .order('desc')
+          .take(TROUBLESHOOT_EVENTS)
+      : [];
+    const runner =
+      run?.status === 'running'
+        ? await ctx.db
+            .query('agentRunners')
+            .withIndex('by_runnerId', (q) => q.eq('runnerId', run.runnerId))
+            .unique()
+        : null;
+    const milestone = await ctx.db.get(task.milestoneId);
+    return troubleshootView({
+      task,
+      run,
+      events: events.map((row) => ({ id: row._id, summary: row.summary, at: row.at })),
+      branch: milestone?.branch ?? null,
+      runnerStops: stopRunDecision({ run, runnerProtocol: runner?.protocolVersion }).ok,
+    });
   },
 });
 

@@ -8,7 +8,9 @@ import { NEXT_ACTION_MAX } from '@warehaus/portal-sync';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { ArchivedChip } from '@/components/closeout/CloseoutControls';
 import type { TaskCloseoutActions } from '@/components/closeout/closeoutActions';
-import { TaskBoard, type BoardAsk, type BoardCard, type BoardReorder, type BoardRules } from '@/components/tasks/TaskBoard';
+import { FIX_NOT_SAVED, TaskBoard, type BoardAsk, type BoardCard, type BoardReorder, type BoardRules } from '@/components/tasks/TaskBoard';
+import { requestTroubleshootFocus } from '@/components/tasks/troubleshootFocus';
+import { cardBlocked, fixLabel } from '@convex/_lib/troubleshoot';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import type { PortalTask } from '@/lib/data/view-models';
 import { ArchivedTaskRow, type ArchivedTask } from './ArchivedView';
@@ -74,6 +76,7 @@ export function MilestoneTaskBoard({
   actions,
   moveStatus,
   onOpenTask,
+  rerunTask,
   archivedTasks = [],
   taskCloseout,
 }: {
@@ -87,6 +90,8 @@ export function MilestoneTaskBoard({
   actions?: Pick<MilestoneTaskActions, 'addTask' | 'reorderTasks'>;
   moveStatus?: MoveTaskStatus;
   onOpenTask?: (taskId: string) => void;
+  /** Rerun on a Blocked card. The live page passes `agent.rerunTask`. Fixture previews pass none. */
+  rerunTask?: (args: { hostSlug?: string; taskId: Id<'tasks'> }) => Promise<unknown>;
   /** This milestone's archived tasks. Staff only. */
   archivedTasks?: readonly ArchivedTask[];
   /** Restore for an archived task. Absent in fixture previews. */
@@ -116,6 +121,7 @@ export function MilestoneTaskBoard({
   const card = useMemo<BoardCard>(() => {
     const origins = milestoneCardOrigins(rows);
     const kinds = new Map(rows.map((row) => [row.id, row.kind] as const));
+    const causes = new Map(rows.map((row) => [row.id, row] as const));
     // Build cards wait while the designs are unapproved: top level, open, not Parked.
     const stages = new Map(rows.map((row) => [row.id, row.stage] as const));
     const designLocked = (task: PortalTask) =>
@@ -131,10 +137,34 @@ export function MilestoneTaskBoard({
       pullRequest: (task) => pullRequestChip(task.pullRequestUrl),
       kind: (task) => (kinds.get(task.id) === 'design' ? TASK_KIND_LABELS.design : null),
       note: (task) => (designLocked(task) ? LOCKED_LINE : null),
+      blocked: (task) => {
+        const row = causes.get(task.id);
+        const blocked = row ? cardBlocked({ ...row, status: task.status, isDone: task.isDone }) : null;
+        return blocked ? { label: blocked.label, tone: blocked.tone, reason: blocked.reason, fix: blocked.fix ? fixLabel(blocked.fix) : null } : null;
+      },
+      // Answer and rerun opens the task at the Troubleshoot section, where the answer is typed. Rerun reruns at once.
+      onFix: async (task) => {
+        const row = causes.get(task.id);
+        const blocked = row ? cardBlocked({ ...row, status: task.status, isDone: task.isDone }) : null;
+        if (!blocked?.fix) return { ok: true };
+        if (blocked.fix === 'answer') {
+          requestTroubleshootFocus(task.id);
+          onOpenTask?.(task.id);
+          return { ok: true };
+        }
+        if (fixtures) return { ok: true };
+        if (!rerunTask) return { ok: false, error: FIX_NOT_SAVED };
+        try {
+          await rerunTask({ hostSlug, taskId: task.id as Id<'tasks'> });
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, error: userFacingErrorMessage(err, FIX_NOT_SAVED) };
+        }
+      },
       leading: (task) =>
         buildState && buildingTaskId && task.id === buildingTaskId ? <BuildingIndicator state={buildState} size={14} /> : null,
     };
-  }, [rows, buildState, buildingTaskId, milestone.designGate?.buildLocked]);
+  }, [rows, buildState, buildingTaskId, milestone.designGate?.buildLocked, fixtures, rerunTask, hostSlug, onOpenTask]);
   const reorderTasks = actions?.reorderTasks;
   const milestoneId = milestone.id;
   const reorder = useMemo<BoardReorder>(

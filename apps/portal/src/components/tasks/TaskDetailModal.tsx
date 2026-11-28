@@ -15,6 +15,7 @@ import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask 
 import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { AttachedResourceRow, resourceKind } from './AttachedResourceRow';
 import { TaskGlyph } from './TaskGlyph';
+import { STOP_CONFIRM, TROUBLESHOOT_SAVE_ERROR, TaskTroubleshootLive } from './TaskTroubleshoot';
 import { AddSourceForm, TaskSources } from './TaskSources';
 import { projectMoveCopy, taskChangeNote } from './taskFieldCopy';
 import { taskCloseoutState } from '@convex/_lib/closeout';
@@ -48,17 +49,21 @@ export function taskSheetOpen(input: {
   archive?: boolean;
   project?: boolean;
   menu?: boolean;
-}): { detail: boolean; attach: boolean; archive: boolean; project: boolean; menu: boolean } {
+  /** The Stop run confirm. */
+  stop?: boolean;
+}): { detail: boolean; attach: boolean; archive: boolean; project: boolean; menu: boolean; stop: boolean } {
   const archive = Boolean(input.archive);
-  const project = Boolean(input.project) && !archive;
-  const menu = Boolean(input.menu) && !archive && !project;
-  const attach = input.attach && !archive && !project && !menu;
+  const stop = Boolean(input.stop) && !archive;
+  const project = Boolean(input.project) && !archive && !stop;
+  const menu = Boolean(input.menu) && !archive && !stop && !project;
+  const attach = input.attach && !archive && !stop && !project && !menu;
   return {
-    detail: !attach && !archive && !project && !menu,
+    detail: !attach && !archive && !stop && !project && !menu,
     attach,
     archive,
     project,
     menu,
+    stop,
   };
 }
 
@@ -134,6 +139,11 @@ export function TaskDetailModal({
   const moveTaskProject = useMutation(api.tasks.moveProject);
   const addLink = useMutation(api.tasks.addLink);
   const removeLink = useMutation(api.tasks.removeLink);
+  const stopRun = useMutation(api.agent.stopRun);
+  // Stop run asks first. The confirm takes the task sheet's place.
+  const [stopOpen, setStopOpen] = useState(false);
+  const [stopBusy, setStopBusy] = useState(false);
+  const [stopError, setStopError] = useState<string | null>(null);
   const taskCloseoutFor = useTaskCloseoutActions(hostSlug);
   // The header "…" menu. On a phone it is a sheet that takes the task sheet's place.
   const [overflowOpen, setOverflowOpen] = useState(false);
@@ -181,6 +191,8 @@ export function TaskDetailModal({
     setArchiveError(null);
     setArchiveOpen(initialArchive);
     setProjectTarget(null);
+    setStopOpen(false);
+    setStopError(null);
   }, [task?.id, initialArchive, initialMenu, initialFieldError, initialSourceError]);
   const phoneMenu = phone && fieldMenu != null && !archiveOpen && !projectTarget;
   const sheets = taskSheetOpen({
@@ -188,7 +200,17 @@ export function TaskDetailModal({
     archive: archiveOpen || (phone && overflowOpen),
     project: Boolean(projectTarget),
     menu: phoneMenu,
+    stop: stopOpen,
   });
+  const confirmStop = () => {
+    if (!task || stopBusy) return;
+    setStopBusy(true);
+    setStopError(null);
+    void stopRun({ hostSlug, taskId: task.id as Id<'tasks'> })
+      .then(() => setStopOpen(false))
+      .catch((err) => setStopError(userFacingErrorMessage(err, TROUBLESHOOT_SAVE_ERROR)))
+      .finally(() => setStopBusy(false));
+  };
   const closeFieldMenu = () => {
     setFieldMenu(null);
     setSourceError(null);
@@ -409,6 +431,19 @@ export function TaskDetailModal({
             <div style={{ order: phone ? 5 : undefined }}>
               <TaskDescription task={task} staff={staff} hostSlug={hostSlug} live={live} />
             </div>
+            {staff && live && task.milestoneId ? (
+              <div style={{ order: phone ? 5 : undefined }}>
+                <TaskTroubleshootLive
+                  taskId={task.id}
+                  hostSlug={hostSlug}
+                  stopping={stopBusy}
+                  onRequestStop={() => {
+                    setStopError(null);
+                    setStopOpen(true);
+                  }}
+                />
+              </div>
+            ) : null}
             <div style={{ order: phone ? 8 : undefined }}>
               <TaskTimeline task={task} staff={staff} hostSlug={hostSlug} live={live} />
             </div>
@@ -814,6 +849,48 @@ export function TaskDetailModal({
                       style={{ height: 42, padding: '0 16px', borderRadius: 10, border: '1px solid var(--danger)', background: 'transparent', color: 'var(--danger-text)', font: 'inherit', fontSize: 14, cursor: 'pointer' }}
                     >
                       {fieldBusy ? 'Saving…' : MENU_ARCHIVE}
+                    </button>
+                  </div>
+                </div>
+              </PortalModal>
+            ) : null,
+          },
+          {
+            key: 'stop',
+            open: sheets.stop,
+            node: task && stopOpen ? (
+              <PortalModal
+                testId="task-stop-confirm"
+                label={STOP_CONFIRM.title}
+                onClose={() => {
+                  if (!stopBusy) setStopOpen(false);
+                }}
+                narrow={phone}
+                sheet="bottom"
+                width={440}
+                header="compact"
+                focusCancel
+                showFooter={false}
+                locked={stopBusy}
+              >
+                <div data-confirm-kind="stop-run">
+                  <p style={{ margin: '8px 24px 16px', fontSize: 14, lineHeight: '21px' }}>{STOP_CONFIRM.body}</p>
+                  {stopError ? (
+                    <p role="alert" style={{ margin: '0 24px 12px', color: 'var(--danger-text)', fontSize: 14 }}>{stopError}</p>
+                  ) : null}
+                  <div className="flex flex-nowrap items-center justify-end gap-2 px-6 py-4">
+                    <OutlineButton className="task-confirm-cancel" nowrap height={42} paddingInline={16} disabled={stopBusy} onClick={() => setStopOpen(false)}>
+                      {STOP_CONFIRM.cancel}
+                    </OutlineButton>
+                    <button
+                      type="button"
+                      data-testid="task-stop-submit"
+                      data-tone="danger"
+                      disabled={stopBusy}
+                      onClick={confirmStop}
+                      style={{ height: 42, padding: '0 16px', borderRadius: 10, border: '1px solid var(--danger)', background: 'transparent', color: 'var(--danger-text)', font: 'inherit', fontSize: 14, cursor: stopBusy ? 'default' : 'pointer', opacity: stopBusy ? 0.55 : 1 }}
+                    >
+                      {stopBusy ? 'Stopping…' : STOP_CONFIRM.submit}
                     </button>
                   </div>
                 </div>

@@ -29,7 +29,8 @@ describe('task detail attach swap', () => {
   });
 
   it('swaps a confirm in place of the task sheet, and shows no stage or Notion-era fields', () => {
-    const closed = { detail: true, attach: false, archive: false, project: false, menu: false };
+    const closed = { detail: true, attach: false, archive: false, project: false, menu: false, stop: false };
+    assert.deepEqual(taskSheetOpen({ attach: false, stop: true }), { ...closed, detail: false, stop: true });
     assert.deepEqual(taskSheetOpen({ attach: false }), closed);
     assert.deepEqual(taskSheetOpen({ attach: false, archive: true }), { ...closed, detail: false, archive: true });
     assert.deepEqual(taskSheetOpen({ attach: true }), { ...closed, detail: false, attach: true });

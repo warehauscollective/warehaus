@@ -192,7 +192,29 @@ export type BoardCard = {
   kind?: (task: PortalTask) => string | null;
   /** A muted line under the chips, such as "Waits for design approval". Staff only. */
   note?: (task: PortalTask) => string | null;
+  /** The Blocked cause, its reason and the one fix on a Blocked card. Staff only. */
+  blocked?: (task: PortalTask) => CardBlocked | null;
+  /** The card's fix button. An error shows as a toast. */
+  onFix?: (task: PortalTask) => Promise<{ ok: boolean; error?: string }> | void;
 };
+
+/** A Blocked card's cause label, the reason under it and the fix button's label. */
+export type CardBlocked = { label: string; tone: 'info' | 'danger' | 'warning'; reason: string | null; fix: string | null };
+
+const CAUSE_COLOR = { info: 'var(--info)', danger: 'var(--danger-text)', warning: 'var(--warning)' } as const;
+const CAUSE_DOT = { info: 'var(--info)', danger: 'var(--danger)', warning: 'var(--warning)' } as const;
+/** The fix button's box. The card face keeps this much room for it. */
+const FIX_HEIGHT = 44;
+
+/** A 6 px dot and the cause name in mono 12. The card and the Troubleshoot section share it. */
+export function CauseLabel({ label, tone }: { label: string; tone: 'info' | 'danger' | 'warning' }) {
+  return (
+    <span className="ds-mono inline-flex items-center" data-testid="cause-label" data-tone={tone} style={{ gap: 6, fontSize: 12, lineHeight: '18px', color: CAUSE_COLOR[tone] }}>
+      <span aria-hidden style={{ width: 6, height: 6, borderRadius: 999, background: CAUSE_DOT[tone], flex: '0 0 auto' }} />
+      {label}
+    </span>
+  );
+}
 
 /** What one card shows beyond its name and child count. */
 export type CardFace = {
@@ -202,6 +224,7 @@ export type CardFace = {
   leading?: ReactNode | null;
   kind?: string | null;
   note?: string | null;
+  blocked?: CardBlocked | null;
 };
 
 /** `01`, `02`, … by place in the run column. */
@@ -209,6 +232,7 @@ export function runNumbers(ids: readonly string[]): Map<string, string> {
   return new Map(ids.map((id, index) => [id, String(index + 1).padStart(2, '0')] as const));
 }
 
+export const FIX_NOT_SAVED = 'Couldn’t rerun the task. Nothing changed.';
 export const ORDER_NOT_SAVED = 'Couldn’t save the order. Moved back.';
 
 /** Each column's cards in the order the board was given them, in place of due date order. */
@@ -375,6 +399,7 @@ export function TaskBoard({
       leading: card.leading?.(task) ?? null,
       kind: staff ? card.kind?.(task) ?? null : null,
       note: staff ? card.note?.(task) ?? null : null,
+      blocked: staff ? card.blocked?.(task) ?? null : null,
     });
   }, [card, columns, mode, staff]);
   const reorderStatus = mode === 'status' && reorder ? reorder.status : null;
@@ -592,6 +617,14 @@ export function TaskBoard({
               locked={hover?.kind === 'reject'}
               activeTarget={accepting}
               draggingId={activeId}
+              onFix={
+                card?.onFix && canChange
+                  ? async (task) => {
+                      const result = await card.onFix?.(task);
+                      if (result && !result.ok) setToast({ message: result.error ?? FIX_NOT_SAVED });
+                    }
+                  : undefined
+              }
               dropIndex={reordering ? slot : landing}
               headerNote={ordering && reorder?.locked && canChange ? reorder.lockedLabel : null}
               onKeyOrder={
@@ -762,6 +795,7 @@ function Column({
   onLiftSize,
   onOpen,
   onRetry,
+  onFix,
   onMoveSheet,
   quick,
   onQuick,
@@ -794,6 +828,7 @@ function Column({
   onLiftSize: (height: number) => void;
   onOpen: (task: PortalTask) => void;
   onRetry: (task: PortalTask) => void;
+  onFix?: (task: PortalTask) => Promise<unknown> | void;
   onMoveSheet: (task: PortalTask) => void;
   quick: boolean;
   onQuick: () => void;
@@ -830,6 +865,7 @@ function Column({
         onLiftSize={onLiftSize}
         onOpen={() => onOpen(task)}
         onRetry={() => onRetry(task)}
+        onFix={onFix ? () => onFix(task) : undefined}
         onMoveSheet={() => onMoveSheet(task)}
         onKeyMove={onKeyMove}
         onKeyOrder={onKeyOrder}
@@ -1226,6 +1262,7 @@ function BoardCard({
   onLiftSize,
   onOpen,
   onRetry,
+  onFix,
   onMoveSheet,
   onKeyMove,
   onKeyOrder,
@@ -1243,10 +1280,14 @@ function BoardCard({
   onLiftSize: (height: number) => void;
   onOpen: () => void;
   onRetry: () => void;
+  /** The Blocked card's fix. Absent on a read-only board. */
+  onFix?: () => Promise<unknown> | void;
   onMoveSheet: () => void;
   onKeyMove: (task: PortalTask, direction: -1 | 1) => void;
   onKeyOrder?: (task: PortalTask, direction: -1 | 1) => void;
 }) {
+  const [fixing, setFixing] = useState(false);
+  const fix = staff && !collapsed && task.status === 'Blocked' ? face?.blocked?.fix ?? null : null;
   const { attributes, listeners, setNodeRef } = useDraggable({ id: task.id, disabled: !canDrag });
   const timer = useRef<number | null>(null);
   /** True once a press and hold opened the move sheet, so the release does not also open the task. */
@@ -1319,6 +1360,8 @@ function BoardCard({
         borderRadius: 12,
       }}
     >
+      {/* The fix button is laid over the card, so both sit in one box. */}
+      <div style={fix ? { position: 'relative' } : undefined}>
       <button
         ref={setNodeRef}
         type="button"
@@ -1349,6 +1392,42 @@ function BoardCard({
       >
         <TaskCardFace task={task} mode={mode} allTasks={allTasks} staff={staff} face={face} />
       </button>
+      {fix ? (
+        <button
+          type="button"
+          className="portal-outline-button"
+          data-testid="card-fix"
+          disabled={fixing || !onFix}
+          onClick={() => {
+            if (!onFix || fixing) return;
+            setFixing(true);
+            void Promise.resolve(onFix()).finally(() => setFixing(false));
+          }}
+          style={{
+            position: 'absolute',
+            // Over the room the face keeps: inside its 1 px border and its 12 and 14 px padding.
+            left: 13,
+            bottom: 15,
+            height: FIX_HEIGHT,
+            boxSizing: 'border-box',
+            padding: '0 16px',
+            borderRadius: 9,
+            border: '1px solid var(--border)',
+            background: 'transparent',
+            color: 'var(--fg)',
+            fontFamily: 'var(--font-body)',
+            fontSize: 14,
+            fontWeight: 500,
+            lineHeight: '20px',
+            whiteSpace: 'nowrap',
+            cursor: fixing || !onFix ? 'not-allowed' : 'pointer',
+            opacity: fixing ? 0.55 : 1,
+          }}
+        >
+          {fix}
+        </button>
+      ) : null}
+      </div>
       {error ? (
         <p style={{ fontSize: 'var(--t-xs)', color: 'var(--fg)', padding: '0.35rem 0.2rem' }}>
           Couldn’t save. Moved back.{' '}
@@ -1414,6 +1493,7 @@ export function TaskCardFace({
   const resources = task.resourceCount ?? 0;
   if (face) {
     const waiting = staff && task.status === 'Blocked' && task.nextAction ? task.nextAction : null;
+    const blocked = staff && task.status === 'Blocked' ? face.blocked ?? null : null;
     return (
       <div
         data-card-face="milestone"
@@ -1487,12 +1567,20 @@ export function TaskCardFace({
             ) : null}
           </div>
         ) : null}
-        {face.note && !waiting ? (
+        {face.note && !waiting && !blocked ? (
           <p className="ds-mono" data-testid="card-note" style={{ minWidth: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}>
             {face.note}
           </p>
         ) : null}
-        {waiting ? (
+        {blocked ? <CauseLabel label={blocked.label} tone={blocked.tone} /> : null}
+        {blocked?.reason ? (
+          <p className="ds-mono" data-testid="card-waiting-on" style={{ minWidth: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}>
+            {blocked.reason}
+          </p>
+        ) : null}
+        {/* The fix is a button of its own, laid over this gap: a card is one button and cannot hold another. */}
+        {blocked?.fix ? <span aria-hidden data-testid="card-fix-room" style={{ display: 'block', height: FIX_HEIGHT }} /> : null}
+        {waiting && !blocked ? (
           <p className="ds-mono" data-testid="card-waiting-on" style={{ minWidth: 0, fontSize: 12, lineHeight: '18px', color: 'var(--danger-text)', overflowWrap: 'anywhere' }}>
             {waiting}
           </p>

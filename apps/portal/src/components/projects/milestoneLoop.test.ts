@@ -5,18 +5,21 @@ import { describe, it } from 'node:test';
 import { DRIVER_LOCKED, DRIVER_SAVE_ERROR, AgentDriverSettingView } from './AgentDriverSetting';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { readFileSync } from 'node:fs';
-import { LOOP_ADD, LOOP_ADD_HINT, LOOP_RETRY, LOOP_UPDATED, MilestoneLoopView, UpdatedStamp, fixtureLoopModel, loopSubtitle, loopSubtitleLine, milestoneLoopSubtitle } from './MilestoneLoop';
+import { LOOP_ADD, LOOP_ADD_HINT, LOOP_RERUN, LOOP_UPDATED, MilestoneLoopView, UpdatedStamp, fixtureLoopModel, loopSubtitle, loopSubtitleLine, milestoneLoopSubtitle } from './MilestoneLoop';
 
 Object.assign(globalThis, { React });
 
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
 
 describe('milestone loop frames', () => {
-  it('offers only Retry when a run is blocked', () => {
+  it('offers Rerun on the Blocked task, and no Retry, when a run is blocked', () => {
     const model = fixtureLoopModel('blocked');
     assert.ok(model);
     const view = html(createElement(MilestoneLoopView, { model }));
-    assert.match(view, new RegExp(LOOP_RETRY));
+    assert.equal(view.split('data-testid="milestone-loop-fix"').length - 1, 1);
+    assert.match(view, new RegExp(`data-fix="rerun"[^>]*>${LOOP_RERUN}<`));
+    assert.equal(/>Retry</.test(view), false);
+    assert.equal(view.includes('data-testid="milestone-retry"'), false);
     assert.equal(view.includes('Mark as Ready to Ship'), false);
     assert.equal(view.includes('Ready to Ship'), false);
     assert.match(view, /BUILDING · BLOCKED/);
@@ -87,13 +90,14 @@ describe('milestone loop frames', () => {
     for (const kind of ['generating', 'building', 'cursor', 'blocked']) assert.deepEqual(hint(kind), { add: false, hint: false });
   });
 
-  it('offers Try again on empty and failed only, and Retry on blocked only', () => {
+  it('offers Try again on empty and failed only, and a task Rerun on blocked only', () => {
     for (const kind of ['generating', 'drafted', 'empty', 'failed', 'building', 'cursor', 'blocked']) {
       const model = fixtureLoopModel(kind);
       assert.ok(model);
       const view = html(createElement(MilestoneLoopView, { model }));
       assert.equal(view.includes('data-testid="milestone-try-again"'), kind === 'empty' || kind === 'failed', kind);
-      assert.equal(view.includes('data-testid="milestone-retry"'), kind === 'blocked', kind);
+      assert.equal(view.includes('data-testid="milestone-loop-fix"'), kind === 'blocked', kind);
+      assert.equal(view.includes('data-testid="milestone-retry"'), false, kind);
       // Regenerate is on the drafted card only (ADR-0005): it archives the planner's drafts and plans again.
       const withRegenerate = html(createElement(MilestoneLoopView, { model, onRegenerate: () => undefined }));
       assert.equal(withRegenerate.includes('data-testid="milestone-regenerate"'), kind === 'drafted', kind);

@@ -223,7 +223,7 @@ function withLoopFixture(milestone: MilestoneRoadmapView, loop: string): Milesto
         portalOwned: true,
         origin: 'planner' as const,
         ...(building && index < 3 ? { commit: ['4c1e9aa', '7d02b1f', '91ae3c0'][index] } : {}),
-        ...(loop === 'blocked' && index === 3 ? { blockedReason: 'runner stopped responding' } : {}),
+        ...(loop === 'blocked' && index === 3 ? { blockedReason: 'runner stopped responding', blockedCause: 'stalled' as const } : {}),
       }));
   return {
     ...withRows(milestone, rows),
