@@ -1,8 +1,17 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { milestoneFromSearch, portalLinkHref } from './portalLink';
+import { milestoneFromSearch, portalLinkHref, troubleshootFromSearch } from './portalLink';
 
 describe('portalLinkHref', () => {
+  it('opens a task at the Troubleshoot section, and drops any other query', () => {
+    assert.equal(portalLinkHref('warehaus://task/abc?section=troubleshoot'), '/tasks/abc?section=troubleshoot');
+    assert.equal(portalLinkHref('warehaus://task/abc?section=comments&next=//evil.example'), '/tasks/abc');
+    assert.equal(troubleshootFromSearch('?section=troubleshoot'), true);
+    assert.equal(troubleshootFromSearch('section=troubleshoot&x=1'), true);
+    assert.equal(troubleshootFromSearch('?section=other'), false);
+    assert.equal(troubleshootFromSearch(''), false);
+  });
+
   it('opens projects, tasks, resources and docs', () => {
     assert.equal(portalLinkHref('warehaus://project/k975vmerwebjswcbmh27gbp6tx8h175e'), '/projects/k975vmerwebjswcbmh27gbp6tx8h175e');
     assert.equal(portalLinkHref('warehaus://task/m17as35g3paw4dj8tyxra46h998jx2d6'), '/tasks/m17as35g3paw4dj8tyxra46h998jx2d6');

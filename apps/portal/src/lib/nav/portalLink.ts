@@ -10,7 +10,8 @@ import { PORTAL_LINK_SCHEME } from '@warehaus/native-bridge';
  * - `warehaus://milestone/<milestoneId>?project=<projectId>` opens the milestone
  *   on its project page. Without `project` it opens Projects, because a
  *   milestone has no page of its own.
- * - `warehaus://task/<taskId>` opens the task.
+ * - `warehaus://task/<taskId>` opens the task. With `?section=troubleshoot` it
+ *   opens at the Troubleshoot section (a blocked Ask in the attention feed).
  * - `warehaus://resource/<resourceId>` and `warehaus://doc/<docId>`.
  *
  * Anything else resolves to null and the page stays where it is.
@@ -37,7 +38,9 @@ export function portalLinkHref(link: string): string | null {
       return `/projects/${encodeURIComponent(project)}?${MILESTONE_PARAM}=${path}`;
     }
     case 'task':
-      return `/tasks/${path}`;
+      return url.searchParams.get(SECTION_PARAM) === TROUBLESHOOT_SECTION
+        ? `/tasks/${path}?${SECTION_PARAM}=${TROUBLESHOOT_SECTION}`
+        : `/tasks/${path}`;
     case 'resource':
       return `/resources/${path}`;
     case 'doc':
@@ -49,6 +52,15 @@ export function portalLinkHref(link: string): string | null {
 
 /** The project page query key that opens one milestone. */
 export const MILESTONE_PARAM = 'milestone';
+
+/** The task page query key that opens the task modal at one section. */
+export const SECTION_PARAM = 'section';
+export const TROUBLESHOOT_SECTION = 'troubleshoot';
+
+/** True when a task page URL asks for the Troubleshoot section (`?section=troubleshoot`). */
+export function troubleshootFromSearch(search: string): boolean {
+  return new URLSearchParams(search.startsWith('?') ? search.slice(1) : search).get(SECTION_PARAM) === TROUBLESHOOT_SECTION;
+}
 
 /** "/abc" → "abc". Empty, nested ("/a/b") or undecodable paths are refused. */
 function singleSegment(pathname: string): string | null {

@@ -21,6 +21,7 @@ import { PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { CauseLabel } from './TaskBoard';
 import { TaskGlyph } from './TaskGlyph';
+import { troubleshootFromSearch } from '@/lib/nav/portalLink';
 import { takeTroubleshootFocus } from './troubleshootFocus';
 
 /** Copy from docs/design/run-troubleshooting.md, character for character. */
@@ -298,8 +299,10 @@ export function TaskTroubleshootLive({
   }, [running]);
   const shown = view != null;
   useEffect(() => {
-    // Answer and rerun on the card opened this task: bring the section into view.
-    if (!shown || !takeTroubleshootFocus(taskId)) return;
+    // Answer and rerun on the card, or a blocked Ask's link (`?section=troubleshoot`),
+    // opened this task: bring the section into view.
+    if (!shown) return;
+    if (!takeTroubleshootFocus(taskId) && !troubleshootFromSearch(window.location.search)) return;
     box.current?.scrollIntoView({ block: 'center' });
     box.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus();
   }, [shown, taskId]);

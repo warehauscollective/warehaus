@@ -13,6 +13,9 @@
  *   Ready to Ship, is a `readyToShip` alert. The approval Ask is written on
  *   entering Ready to Ship and closed on leaving it or on approval, so its id
  *   is new on every entry and each iteration alerts once.
+ * - A blocked Ask on a task links to that task's Troubleshoot section. While
+ *   the task is Blocked with a Blocked cause (Needs input, Failed, Stalled),
+ *   the alert carries the cause.
  * - The viewer's own actions are left out: an Ask they raised themselves.
  * - Each kind follows a notification preference (`ATTENTION_PREF`).
  * - Archived milestones and clients staff may not read are left out.
@@ -21,7 +24,7 @@
  * (`packages/native-bridge`). The test decodes a feed through the bridge.
  *
  * Every read is indexed and bounded: one prefs row, two Ask reads, and one
- * milestone and one client per Ask.
+ * milestone, one client and, for a blocked Ask, one task per Ask.
  */
 
 import type { Doc, Id } from '../_generated/dataModel';
@@ -30,6 +33,7 @@ import { OPEN_ASK_LIMIT, openAsks } from './askStore';
 import { isStaff, type PortalIdentity } from './identity';
 import { normalizeNotificationPrefs, type NotificationPrefKey, type NotificationPrefs } from './notificationPrefs';
 import { staffOrgs } from './staffRead';
+import { blockedCause, type BlockedCause } from './troubleshoot';
 
 export type AttentionKind = 'ask' | 'readyToShip';
 
@@ -39,9 +43,11 @@ export type AttentionAlert = {
   kind: AttentionKind;
   /** The milestone's name. Clients add their own lead-in, such as "Needs you:". */
   title: string;
-  /** A `warehaus://` link to the blocked task, or to the milestone. */
+  /** A `warehaus://` link to the blocked task's Troubleshoot section, or to the milestone. */
   url: string;
   createdAt: number;
+  /** The Blocked cause of a blocked Ask's task. Absent on every other alert. */
+  cause?: BlockedCause;
 };
 
 export type AttentionFeed = { count: number; alerts: AttentionAlert[] };
@@ -71,6 +77,20 @@ export function milestoneLink(milestone: Pick<Doc<'milestones'>, '_id' | 'projec
 
 export function taskLink(taskId: Id<'tasks'>): string {
   return `warehaus://task/${taskId}`;
+}
+
+/** The task, opened at its Troubleshoot section. `portalLinkHref` keeps the `section`. */
+export function troubleshootLink(taskId: Id<'tasks'>): string {
+  return `${taskLink(taskId)}?section=troubleshoot`;
+}
+
+/** The cause a blocked Ask's alert shows: the task's, while it is still Blocked. */
+export function askCause(
+  ask: Pick<Doc<'milestoneNotes'>, 'reason'>,
+  task: Pick<Doc<'tasks'>, 'status' | 'blockedCause'> | null,
+): BlockedCause | null {
+  if (ask.reason !== 'blocked' || !task || task.status !== 'Blocked') return null;
+  return blockedCause(task.blockedCause);
 }
 
 /**
@@ -126,13 +146,10 @@ export async function loadAttentionFeed(ctx: QueryCtx, identity: PortalIdentity)
     const title = milestone.name.trim();
     if (!title) continue;
     if (!(await orgs.visible(ask.orgId))) continue;
-    alerts.push({
-      id: ask._id,
-      kind,
-      title,
-      url: ask.taskId ? taskLink(ask.taskId) : milestoneLink(milestone),
-      createdAt: ask.createdAt,
-    });
+    const blockedTask = ask.reason === 'blocked' && ask.taskId ? ask.taskId : null;
+    const cause = kind === 'ask' && blockedTask ? askCause(ask, await ctx.db.get(blockedTask)) : null;
+    const url = blockedTask ? troubleshootLink(blockedTask) : ask.taskId ? taskLink(ask.taskId) : milestoneLink(milestone);
+    alerts.push({ id: ask._id, kind, title, url, createdAt: ask.createdAt, ...(cause ? { cause } : {}) });
   }
   return { count: alerts.length, alerts };
 }

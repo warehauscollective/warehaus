@@ -5,11 +5,10 @@ import XCTest
 /// AttentionAlert has no public initializer, so tests build alerts the way the
 /// window gets them: decoded from a page message.
 enum Fixture {
-    static func alert(_ id: String, kind: String = "ask", title: String = "Runner on production", url: String = "warehaus://milestone/m1?project=p1") -> AttentionAlert {
-        let message: [String: Any] = [
-            "type": "attention", "count": 1,
-            "alerts": [["id": id, "kind": kind, "title": title, "url": url, "createdAt": 1_795_000_000_000]],
-        ]
+    static func alert(_ id: String, kind: String = "ask", title: String = "Runner on production", url: String = "warehaus://milestone/m1?project=p1", cause: String? = nil) -> AttentionAlert {
+        var alert: [String: Any] = ["id": id, "kind": kind, "title": title, "url": url, "createdAt": 1_795_000_000_000]
+        if let cause { alert["cause"] = cause }
+        let message: [String: Any] = ["type": "attention", "count": 1, "alerts": [alert]]
         guard case let .success(.attention(_, alerts)) = BridgeDecoder.decodePageMessage(message) else {
             fatalError("fixture alert did not decode")
         }
@@ -76,6 +75,21 @@ final class AttentionAlertsTests: XCTestCase {
         XCTAssertEqual(content.title, "Needs you: Runner on production")
         XCTAssertEqual(content.body, "Ready to Ship and waiting on your approval. Approve it or request changes.")
         XCTAssertEqual(content.identifier, "portal.alert.a")
+    }
+
+    func testBlockedAskLeadsWithItsCauseAndKeepsTheTaskLink() {
+        let link = "warehaus://task/t1?section=troubleshoot"
+        let bodies = [
+            "needs_input": "Needs input. Open the task to answer and rerun.",
+            "failed": "Failed. Open the task to see why and rerun.",
+            "stalled": "Stalled. Open the task to see why and rerun.",
+        ]
+        for (cause, body) in bodies {
+            let content = AlertNotificationContent(Fixture.alert("a", title: "Run troubleshooting", url: link, cause: cause))
+            XCTAssertEqual(content.title, "Needs you: Run troubleshooting")
+            XCTAssertEqual(content.body, body)
+            XCTAssertEqual(AlertNotificationContent.link(fromUserInfo: content.userInfo), link)
+        }
     }
 
     func testReadyToShipWordingMatchesTheDesign() {

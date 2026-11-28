@@ -69,7 +69,10 @@ public enum DockBadge {
 }
 
 /// A notification's words, from the approved design (Figma, Projects /
-/// Mac app / Needs you and Ready to Ship notifications).
+/// Mac app / Needs you and Ready to Ship notifications). A blocked Ask with a
+/// Blocked cause leads with the cause label the Portal shows on the card
+/// (Needs input, Failed, Stalled) and names the fix; that line is not drawn
+/// in Figma yet (docs/design/run-troubleshooting.md).
 public struct AlertNotificationContent: Equatable, Sendable {
     /// The userInfo source the notification router sends clicks back by.
     public static let source = "portal"
@@ -87,7 +90,12 @@ public struct AlertNotificationContent: Equatable, Sendable {
         switch alert.kind {
         case .ask:
             title = "Needs you: \(alert.title)"
-            body = "Ready to Ship and waiting on your approval. Approve it or request changes."
+            switch alert.cause {
+            case .needsInput: body = "Needs input. Open the task to answer and rerun."
+            case .failed: body = "Failed. Open the task to see why and rerun."
+            case .stalled: body = "Stalled. Open the task to see why and rerun."
+            case nil: body = "Ready to Ship and waiting on your approval. Approve it or request changes."
+            }
         case .readyToShip:
             title = "Ready to Ship: \(alert.title)"
             body = "The local preview is ready. Open the milestone to review it."

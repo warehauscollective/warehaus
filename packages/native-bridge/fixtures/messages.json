@@ -57,6 +57,24 @@
       }
     },
     {
+      "name": "attention with a blocked Ask and its cause",
+      "direction": "pageToShell",
+      "message": {
+        "type": "attention",
+        "count": 1,
+        "alerts": [
+          {
+            "id": "q575ty9z3709wdsy9a4cnthxbh8jx9gt",
+            "kind": "ask",
+            "title": "Run troubleshooting",
+            "url": "warehaus://task/m17as35g3paw4dj8tyxra46h998jx2d6?section=troubleshoot",
+            "createdAt": 1795591788567,
+            "cause": "needs_input"
+          }
+        ]
+      }
+    },
+    {
       "name": "open an external link",
       "direction": "pageToShell",
       "message": { "type": "openExternal", "url": "https://github.com/warehauscollective/warehaus/pull/185" }
@@ -138,6 +156,24 @@
         "type": "attention",
         "count": 1,
         "alerts": [{ "id": "a", "kind": "ask", "title": "Approve", "url": "https://example.com", "createdAt": 1 }]
+      }
+    },
+    {
+      "name": "attention alert with an unknown cause",
+      "direction": "pageToShell",
+      "message": {
+        "type": "attention",
+        "count": 1,
+        "alerts": [{ "id": "a", "kind": "ask", "title": "Approve", "url": "warehaus://task/abc", "createdAt": 1, "cause": "bored" }]
+      }
+    },
+    {
+      "name": "attention Ready to Ship alert with a cause",
+      "direction": "pageToShell",
+      "message": {
+        "type": "attention",
+        "count": 1,
+        "alerts": [{ "id": "a", "kind": "readyToShip", "title": "Approve", "url": "warehaus://milestone/abc", "createdAt": 1, "cause": "failed" }]
       }
     },
     {

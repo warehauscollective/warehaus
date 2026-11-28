@@ -84,5 +84,5 @@ Sample event text in the frames: "Run started on peteroqs-laptop-prod", "Commit 
 
 ## Not drawn in this task
 
-- The Blocked Ask in the Attention feed. The milestone has it show the cause and open the task; task 01's brief did not include it, so the feed row has no cause label in Figma yet.
+- The Blocked Ask in the Attention feed. The milestone has it show the cause and open the task; task 01's brief did not include it, so the feed row has no cause label in Figma yet. Task 05 built it without a frame: the alert carries the cause, and the Mac notification body leads with the cause label from the card and names the fix ("Needs input. Open the task to answer and rerun.", "Failed. Open the task to see why and rerun.", "Stalled. Open the task to see why and rerun."). The title stays "Needs you: <milestone>". The wording needs a frame or Peter's OK.
 - The Stop run confirm was already in the library from an earlier run of this task (`Kind=stop-run`). This task added its overlay frames on P04 and the changelog lines.

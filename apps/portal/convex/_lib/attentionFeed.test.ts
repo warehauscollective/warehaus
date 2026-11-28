@@ -87,9 +87,47 @@ describe('attention feed', () => {
 
     const mine = await read(t, 'staff');
     assert.deepEqual(mine.alerts, [
-      { id, kind: 'ask', title: 'Runner on production', url: `warehaus://task/${taskId}`, createdAt: 5 },
+      { id, kind: 'ask', title: 'Runner on production', url: `warehaus://task/${taskId}?section=troubleshoot`, createdAt: 5 },
     ]);
     assert.deepEqual(await read(t, 'peter'), { count: 0, alerts: [] });
+  });
+
+  it("shows a blocked Ask's Blocked cause while its task is Blocked", async () => {
+    const t = memoryCtx();
+    const { building, ask, maya } = await world(t);
+    const causes = ['needs_input', 'failed', 'stalled'] as const;
+    const ids = causes.map((cause, i) => {
+      const taskId = building.task({ status: 'Blocked', blockedCause: cause, blockedReason: 'Which colour?' });
+      return ask(building, 10 - i, { reason: 'blocked', taskId, waitingOn: maya });
+    });
+    // Moved to Blocked by a person: no cause. Rerun since: no longer Blocked.
+    const byHand = ask(building, 3, { reason: 'blocked', taskId: building.task({ status: 'Blocked' }), waitingOn: maya });
+    const rerun = ask(building, 2, { reason: 'blocked', taskId: building.task({ status: 'To Do', blockedCause: 'failed' }), waitingOn: maya });
+
+    const mine = await read(t, 'staff');
+    assert.deepEqual(
+      mine.alerts.map((a) => [a.id, a.cause]),
+      [...ids.map((id, i) => [id, causes[i]]), [byHand, undefined], [rerun, undefined]],
+    );
+    assert.ok(mine.alerts.every((a) => !('cause' in a) || a.cause));
+    assert.ok(mine.alerts.every((a) => a.url.endsWith('?section=troubleshoot')));
+    // The bridge takes the feed as it is and keeps the cause.
+    const decoded = decodePageMessage({ type: 'attention', ...mine });
+    assert.ok(decoded.ok && decoded.message.type === 'attention');
+    assert.deepEqual(decoded.message.alerts.map((a) => a.cause), [...causes, undefined, undefined]);
+    assert.deepEqual(t.reads.unbounded(), []);
+    assert.deepEqual(t.reads.unindexed(), []);
+  });
+
+  it('gives an approval Ask no cause and keeps its milestone link', async () => {
+    const t = memoryCtx();
+    const { ready, ask } = await world(t);
+    ask(ready, 1);
+    for (const as of ['peter', 'staff'] as const) {
+      const [alert] = (await read(t, as)).alerts;
+      assert.equal('cause' in alert, false);
+      assert.equal(alert.url, milestoneLink({ _id: ready.milestoneId, projectId: ready.projectId } as never));
+    }
   });
 
   it('leaves out answered Asks and plain notes', async () => {
