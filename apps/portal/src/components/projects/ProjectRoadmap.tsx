@@ -55,7 +55,9 @@ import {
   milestoneQueryAvailability,
   milestonesAfterQuery,
   tabIds,
+  heldMilestonesFor,
 } from './milestoneGuards';
+import { milestoneOpenedTasks } from './milestoneBoard';
 import { type RoadmapProject, type MilestoneActivityItem, type ResourceChoice, type FixturePatch, nextDueLabel, projectStatusLabel } from './milestoneTile';
 import { ProjectResources, ActivityList } from './roadmapParts';
 import { MilestoneListCard } from './MilestoneListCard';
@@ -137,6 +139,36 @@ function withRowTasks(
   ];
 }
 
+/**
+ * Keeps the task the modal has open in step with the live milestone list.
+ * The page holds a copy of a task its own list may lack. Without this the
+ * modal kept the copy from the moment it was opened.
+ */
+function OpenTaskLive({
+  taskId,
+  milestones,
+  tasks,
+  project,
+  onLive,
+}: {
+  taskId: string;
+  milestones: readonly MilestoneRoadmapView[];
+  tasks: readonly PortalTask[];
+  project: RoadmapProject;
+  onLive: (rows: PortalTask[]) => void;
+}) {
+  useEffect(() => {
+    for (const milestone of milestones) {
+      const rows = milestoneOpenedTasks({ taskId, milestone, tasks, project });
+      if (rows) {
+        onLive(rows);
+        return;
+      }
+    }
+  }, [taskId, milestones, tasks, project, onLive]);
+  return null;
+}
+
 export function ProjectRoadmap({
   project,
   tasks,
@@ -150,6 +182,8 @@ export function ProjectRoadmap({
   activityError = null,
   onBackToProjects,
   onOpenTask,
+  openTaskId = null,
+  onOpenTaskLive,
   resourceChoices = [],
   resourcesExtra,
   details,
@@ -166,6 +200,9 @@ export function ProjectRoadmap({
   activityError?: string | null;
   onBackToProjects?: () => void;
   onOpenTask?: (task: PortalTask) => void;
+  /** The task the modal has open, and where its live rows go while it is open. */
+  openTaskId?: string | null;
+  onOpenTaskLive?: (rows: PortalTask[]) => void;
   resourceChoices?: ResourceChoice[];
   resourcesExtra?: ReactNode;
   details?: ReactNode;
@@ -199,7 +236,8 @@ export function ProjectRoadmap({
   );
   const phone = useMaxWidth(767);
   const projectContext = useProjectContext({ projectId: project.id, staff, fixtures, live, hostSlug });
-  const rememberedMilestones = useRef<MilestoneRoadmapView[]>([]);
+  // The last list the query returned, and the project it was for.
+  const rememberedMilestones = useRef<{ projectId: string; rows: MilestoneRoadmapView[] } | null>(null);
   const projectId = project.id as Id<'projects'>;
   const staffQuery = useSafeQuery<MilestoneRoadmapView[]>(
     api.milestones.listForProject,
@@ -269,7 +307,7 @@ export function ProjectRoadmap({
   }
   if (!fixtures && !live && !onBackToProjects) return null;
 
-  if (!fixtures && query.data) rememberedMilestones.current = query.data;
+  if (!fixtures && query.data) rememberedMilestones.current = { projectId: project.id, rows: query.data };
   const fixtureAll = fixtures
     ? [...fixtureRows, ...created].map((row) => applyFixtureTasks(row, tasks, patches[row.id]))
     : [];
@@ -279,9 +317,13 @@ export function ProjectRoadmap({
         data: query.data,
         error: query.error,
         loading: query.loading,
-        previous: rememberedMilestones.current,
+        previous: heldMilestonesFor(rememberedMilestones.current, project.id),
       });
   const selected = milestones.find((milestone) => milestone.id === openMilestoneId) ?? null;
+  const openTaskLive =
+    !fixtures && openTaskId && onOpenTaskLive ? (
+      <OpenTaskLive taskId={openTaskId} milestones={milestones} tasks={tasks} project={project} onLive={onOpenTaskLive} />
+    ) : null;
   const approvedCount = milestones.filter((milestone) => milestone.approval === 'approved').length;
   const archivedMilestones: ArchivedProjectView['milestones'] = fixtures
     ? fixtureAll.filter((row) => fixtureArchivedIds.includes(row.id)).map((row) => ({ ...row, archivedAt: 0 }))
@@ -458,6 +500,7 @@ export function ProjectRoadmap({
 
   return (
     <section data-testid="project-roadmap" className="flex flex-col gap-6">
+      {openTaskLive}
       {page && !selected ? (
         <ProjectBreadcrumb
           back={{ label: '‹ Projects', onClick: () => onBackToProjects?.() }}

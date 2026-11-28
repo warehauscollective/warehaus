@@ -535,6 +535,7 @@ const CLIENT_ROADMAP_OMIT = [
   'creator',
   'localPreviewUrl',
   'figmaUrl',
+  'figmaFrameUrls',
   'createdVia',
   'planning',
   'planningBlockedReason',
@@ -613,10 +614,12 @@ export type MilestoneRoadmapView = {
   localPreviewUrl?: string | null;
   /** Staff-only Figma link on the tile. Absent for clients, including the key. */
   figmaUrl?: string | null;
+  /** Staff-only Figma frame links from finished design tasks. Absent for clients, including the key. */
+  figmaFrameUrls?: string[];
   /** Staff only. When Peter approved the design. Absent for clients and until he approves. */
   designApprovedAt?: number;
-  /** Staff only. The design gate: whether build waits, and the Building phase. */
-  designGate?: { visual: boolean; buildLocked: boolean; phase: BuildingPhase };
+  /** Staff only. The design gate: whether build waits, the Building phase, and how many design tasks are done. */
+  designGate?: { visual: boolean; buildLocked: boolean; phase: BuildingPhase; doneDesign: number };
   /** Staff only. On a Shipped milestone with a recorded merge: whether a deploy run has covered it. */
   deploy?: 'not-deployed' | 'deployed';
   /** Staff only. Where the milestone was created. Absent for clients, including the key. */

@@ -27,6 +27,8 @@ import {
   repoFromRemote,
   selectDriver,
   taskOutcome,
+  figmaFrameUrls,
+  FIGMA_FRAME_URL_LIMIT,
   taskPrompt,
   designApprovalLine,
   worktreeName,
@@ -203,6 +205,7 @@ describe('prompts', () => {
     assert.match(designPrompt, /## This is a design task/);
     assert.match(designPrompt, /docs\/design\/figma-protocol\.md/);
     assert.match(designPrompt, /\.runner\/design-done\.txt/);
+    assert.match(designPrompt, /one https:\/\/www\.figma\.com\/design\/\.\.\. link with its `node-id` per line/);
     const buildPrompt = taskPrompt(read('../prompts/task.md'), { ...work, task: { ...work.task, kind: 'build' } });
     assert.equal(buildPrompt.includes('design task'), false);
     assert.equal(taskKindRules(undefined), '');
@@ -302,6 +305,27 @@ describe('task outcome', () => {
       status: 'done',
     });
     assert.equal(taskOutcome({ before: 'aaa', after: 'aaa', blockedReason: '', designDone: '  ' }).status, 'failed');
+  });
+
+  it('reads one Figma frame link per line from the done note', () => {
+    const a = 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=689-31057';
+    const b = 'https://figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=1106-8680';
+    const note = [a, '', `- ${b}`, 'Task card 1106:8680', 'http://www.figma.com/design/x', 'https://example.com/design/x', `see ${a}`, a, 'https://www.figma.com/'].join('\r\n');
+    assert.deepEqual(figmaFrameUrls(note), [a, b]);
+    assert.deepEqual(figmaFrameUrls(''), []);
+    assert.deepEqual(figmaFrameUrls(undefined), []);
+    const many = Array.from({ length: 30 }, (_, index) => `https://www.figma.com/design/key/File?node-id=1-${index}`).join('\n');
+    assert.equal(figmaFrameUrls(many).length, FIGMA_FRAME_URL_LIMIT);
+  });
+
+  it('sends the frame links with a done design task, and with nothing else', () => {
+    const a = 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=689-31057';
+    assert.deepEqual(taskOutcome({ before: 'aaa', after: 'aaa', blockedReason: '', designDone: `${a}\n` }), {
+      status: 'done',
+      figmaFrameUrls: [a],
+    });
+    assert.equal('figmaFrameUrls' in taskOutcome({ before: 'aaa', after: 'aaa', blockedReason: 'stuck', designDone: a }), false);
+    assert.equal('figmaFrameUrls' in taskOutcome({ before: 'aaa', after: 'bbb', blockedReason: '' }), false);
   });
 
   it('waits one minute, then longer, up to five', () => {

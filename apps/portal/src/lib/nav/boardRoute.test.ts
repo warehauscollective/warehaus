@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { getPortalTabForPath } from '@warehaus/logic';
 import { PROJECT_UNAVAILABLE, TASK_UNAVAILABLE } from '@warehaus/portal-sync';
-import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute, tasksWithOpened } from './boardRoute';
+import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, refreshedOpened, resolveBoardRoute, tasksWithOpened } from './boardRoute';
 
 const tasks = [
   { id: 'task-public', projectId: 'proj-public' },
@@ -127,5 +127,13 @@ describe('a task opened from a milestone card', () => {
     assert.deepEqual(tasksWithOpened(tasks, [parent, child, held]), [...tasks, parent, child]);
     assert.equal(tasksWithOpened(tasks, [held]), tasks);
     assert.equal(tasksWithOpened(tasks, []), tasks);
+  });
+
+  it('replaces the opened task when a live row differs, and keeps the held list when none does', () => {
+    const held = [{ id: 'task-milestone-only', projectId: 'proj-public', status: 'To Do' }];
+    assert.equal(refreshedOpened(held, [{ ...held[0]! }]), held);
+    const moved = [{ ...held[0]!, status: 'Done' }];
+    assert.deepEqual(refreshedOpened(held, moved), moved);
+    assert.deepEqual(refreshedOpened(null, moved), moved);
   });
 });

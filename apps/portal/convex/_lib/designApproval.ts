@@ -1,8 +1,9 @@
 /**
  * Approve designs and Request design changes: Peter's two answers to the
  * design gate (`designGate.ts`). On a visual milestone the approval unlocks
- * the build tasks. A milestone with no design task is not held, and an
- * approval there is only recorded and told to the runner.
+ * the build tasks. There is nothing to approve until a design task is done:
+ * a milestone with no design task, or with none done yet, has no Approve
+ * designs button and the mutation refuses it.
  */
 import type { MilestoneStatus } from './milestoneStatus';
 
@@ -11,19 +12,34 @@ export const DESIGN_APPROVAL_STATUSES: readonly MilestoneStatus[] = ['Idea', 'Pl
 
 export const DESIGN_APPROVAL_TOO_LATE = 'Designs are approved before build. This milestone is past that.';
 export const ONLY_PETER_DESIGNS = 'Only Peter can approve designs';
+export const DESIGN_APPROVAL_NEEDS_DESIGN = 'This milestone has no design tasks.';
+export const DESIGN_APPROVAL_NEEDS_DONE_DESIGN = 'No design task is done yet.';
 
-/** Approve designs on the tile. Peter only, before build, until he has approved. */
+/** The part of the design gate an approval reads (`designGate()`). */
+export type DesignApprovalGate = { visual: boolean; doneDesign: number };
+
+/** There are designs to approve: a visual milestone with a design task done. */
+function hasDesignsToApprove(gate: DesignApprovalGate | null | undefined): boolean {
+  return gate?.visual === true && gate.doneDesign > 0;
+}
+
+/**
+ * Approve designs on the tile. Peter only, before build, until he has
+ * approved, and only once a design task is done.
+ */
 export function peterMayApproveDesign(input: {
   staff: boolean;
   isPeter: boolean;
   status: string;
   designApprovedAt?: number | null;
+  gate?: DesignApprovalGate | null;
 }): boolean {
   return Boolean(
     input.staff &&
       input.isPeter &&
       (DESIGN_APPROVAL_STATUSES as readonly string[]).includes(input.status) &&
-      !input.designApprovedAt,
+      !input.designApprovedAt &&
+      hasDesignsToApprove(input.gate),
   );
 }
 
@@ -31,11 +47,14 @@ export function peterMayApproveDesign(input: {
 export function approveDesignDecision(input: {
   status: string;
   designApprovedAt?: number | null;
+  gate?: DesignApprovalGate | null;
 }): { ok: true; already: boolean } | { ok: false; reason: string } {
   if (input.designApprovedAt) return { ok: true, already: true };
   if (!(DESIGN_APPROVAL_STATUSES as readonly string[]).includes(input.status)) {
     return { ok: false, reason: DESIGN_APPROVAL_TOO_LATE };
   }
+  if (input.gate?.visual !== true) return { ok: false, reason: DESIGN_APPROVAL_NEEDS_DESIGN };
+  if (input.gate.doneDesign < 1) return { ok: false, reason: DESIGN_APPROVAL_NEEDS_DONE_DESIGN };
   return { ok: true, already: false };
 }
 

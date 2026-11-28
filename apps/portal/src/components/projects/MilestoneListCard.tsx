@@ -292,6 +292,7 @@ export function MilestoneListCard({
     isPeter,
     status: milestone.status,
     designApprovedAt: milestone.designApprovedAt,
+    gate: milestone.designGate,
   });
   // Staff see the approval under the chip until build is over.
   const designApproved =
@@ -468,7 +469,8 @@ export function MilestoneListCard({
       {designsApprovedLine(milestone.designApprovedAt)}
     </p>
   ) : null;
-  const showDesignConfirm = designConfirm && !stageMenuOpen;
+  // The sheet closes if the gate stops offering the approval while it is open.
+  const showDesignConfirm = designConfirm && canApproveDesign && !stageMenuOpen;
   const linkButtonStyle = (dimmed: boolean): CSSProperties => ({
     boxSizing: 'border-box',
     display: 'inline-flex',

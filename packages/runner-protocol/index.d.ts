@@ -39,6 +39,8 @@ export type RunnerClient = {
     commitSha?: string;
     reason?: string;
     prUrl?: string;
+    /** Figma frame links from a finished design task. */
+    figmaFrameUrls?: string[];
   }): Promise<Record<string, unknown>>;
   failPlanning(input: { runId: string; reason: string }): Promise<Record<string, unknown>>;
   release(input: { runId: string; reason?: string; until?: number }): Promise<Record<string, unknown>>;

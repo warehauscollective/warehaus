@@ -8,7 +8,13 @@ import { describe, it } from 'node:test';
 import type { Doc } from '../_generated/dataModel';
 import { internalMutation, type MutationCtx } from '../_generated/server';
 import { approveDesign, requestDesignChanges, setTaskKind } from '../milestones';
-import { DESIGN_CHANGES_AFTER_APPROVAL, DESIGN_CHANGES_NEED_DESIGN, ONLY_PETER_DESIGN_CHANGES } from './designApproval';
+import {
+  DESIGN_APPROVAL_NEEDS_DESIGN,
+  DESIGN_APPROVAL_NEEDS_DONE_DESIGN,
+  DESIGN_CHANGES_AFTER_APPROVAL,
+  DESIGN_CHANGES_NEED_DESIGN,
+  ONLY_PETER_DESIGN_CHANGES,
+} from './designApproval';
 import {
   DESIGN_ASK_PREFIX,
   designAskDue,
@@ -111,7 +117,7 @@ function visualWorld(t: MemoryCtx, status = 'Building') {
     world.task({ source: PORTAL_MILESTONE_TASK_SOURCE, notionPageId: `${PORTAL_MILESTONE_TASK_SOURCE}:${Math.random()}`, ...fields });
   const designId = task({ name: 'Design the card', kind: 'design', milestoneOrder: 0 });
   const buildId = task({ name: 'Build the card', milestoneOrder: 1 });
-  return { ...world, designId, buildId };
+  return { ...world, task, designId, buildId };
 }
 
 const designAsks = (t: MemoryCtx, milestoneId: string) =>
@@ -156,6 +162,38 @@ describe('Approve designs Ask', () => {
   });
 });
 
+describe('approveDesign under the design gate', () => {
+  it('refuses a milestone with no design task, and one whose design task is still open', async () => {
+    const t = memoryCtx();
+    const plain = seedMilestoneWorld(t, { status: 'Building' });
+    plain.task({ source: PORTAL_MILESTONE_TASK_SOURCE });
+    await assert.rejects(
+      t.call(approveDesign, { milestoneId: plain.milestoneId }, { as: 'peter' }),
+      rejectsWith(DESIGN_APPROVAL_NEEDS_DESIGN),
+    );
+    const { milestoneId } = visualWorld(t);
+    await assert.rejects(t.call(approveDesign, { milestoneId }, { as: 'peter' }), rejectsWith(DESIGN_APPROVAL_NEEDS_DONE_DESIGN));
+    for (const id of [plain.milestoneId, milestoneId]) {
+      assert.equal((t.row(id) as Doc<'milestones'>).designApprovedAt, undefined);
+    }
+    assert.equal(t.rows('activity').length, 0);
+  });
+
+  it('approves once one design task is done, even while another is open, and unlocks build', async () => {
+    const t = memoryCtx();
+    const { milestoneId, designId, task } = visualWorld(t);
+    task({ name: 'Design the sheet', kind: 'design', milestoneOrder: 2 });
+    await mutate(t, async (ctx) => {
+      await ctx.db.patch(designId as never, { status: 'Done', isDone: true } as never);
+    });
+    await t.call(approveDesign, { milestoneId }, { as: 'peter' });
+    const milestone = t.row(milestoneId) as Doc<'milestones'>;
+    assert.ok(milestone.designApprovedAt);
+    const rows = t.rows('tasks').filter((row) => row.milestoneId === milestoneId) as Doc<'tasks'>[];
+    assert.equal(designGate(rows.map((row) => ({ ...row, archived: row.archivedAt != null })), milestone.designApprovedAt).buildLocked, false);
+  });
+});
+
 describe('requestDesignChanges', () => {
   it('adds design tasks that name what they revise, closes the Ask and keeps build locked', async () => {
     const t = memoryCtx();
@@ -182,11 +220,14 @@ describe('requestDesignChanges', () => {
 
   it('refuses other staff, an approved milestone and one with no design task', async () => {
     const t = memoryCtx();
-    const { milestoneId } = visualWorld(t);
+    const { milestoneId, designId } = visualWorld(t);
     await assert.rejects(
       t.call(requestDesignChanges, { milestoneId, notes: 'x' }, { as: 'staff' }),
       rejectsWith(ONLY_PETER_DESIGN_CHANGES),
     );
+    await mutate(t, async (ctx) => {
+      await ctx.db.patch(designId as never, { status: 'Done', isDone: true } as never);
+    });
     await t.call(approveDesign, { milestoneId }, { as: 'peter' });
     await assert.rejects(
       t.call(requestDesignChanges, { milestoneId, notes: 'x' }, { as: 'peter' }),

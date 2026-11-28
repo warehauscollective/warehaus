@@ -159,6 +159,8 @@ describe('fixture roadmap', () => {
     assert.equal(links[0]?.localPreviewUrl, 'http://localhost:3200');
     assert.equal(links[0]?.figmaUrl, 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Portal');
     assert.equal(links[1]?.figmaUrl ?? null, null);
+    assert.equal(links[0]?.figmaFrameUrls?.length, 3);
+    assert.equal(links[1]?.figmaFrameUrls, undefined);
     assert.equal(links[1]?.localPreviewUrl ?? null, null);
     const ready = applyFixtureMilestonePreview(staff, '?tiles=ready');
     assert.equal(ready[0]?.review?.previewUrl, 'https://warehaus-portal-git-order-ahead-warehaus-collective.vercel.app');
@@ -837,6 +839,29 @@ describe('design gate on the tile', () => {
     const build = renderTile({ staff: true, isPeter: true, milestone: gateTile('build') });
     assert.doesNotMatch(build, /building-phase/);
     assert.doesNotMatch(build, /tile-request-design-changes/);
+  });
+
+  it('shows Peter Approve designs only once a design task is done', () => {
+    const waiting = gateTile('waiting');
+    assert.equal(waiting.designGate?.doneDesign, 2);
+    // No design task: the Status box stays the plain control.
+    const plain = renderTile({
+      staff: true,
+      isPeter: true,
+      milestone: { ...waiting, designGate: { visual: false, buildLocked: false, phase: 'build', doneDesign: 0 } },
+    });
+    assert.doesNotMatch(plain, /tile-approve-designs|tile-request-design-changes/);
+    // A design task is open and none is done.
+    const open = renderTile({
+      staff: true,
+      isPeter: true,
+      milestone: { ...waiting, designGate: { visual: true, buildLocked: true, phase: 'designs', doneDesign: 0 } },
+    });
+    assert.doesNotMatch(open, /tile-approve-designs|tile-request-design-changes/);
+    // A tile sent with no gate at all gets no button either.
+    const none = renderTile({ staff: true, isPeter: true, milestone: { ...waiting, designGate: undefined } });
+    assert.doesNotMatch(none, /tile-approve-designs/);
+    assert.match(renderTile({ staff: true, isPeter: true, milestone: waiting }), /data-testid="tile-approve-designs"/);
   });
 
   it('never shows a client the phase', () => {

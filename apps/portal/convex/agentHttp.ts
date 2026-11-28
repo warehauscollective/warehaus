@@ -167,6 +167,7 @@ export const agentHttp = httpAction(async (ctx, request) => {
       ...(body.commitSha !== undefined ? { commitSha: body.commitSha } : {}),
       ...(body.reason !== undefined ? { reason: body.reason } : {}),
       ...(body.prUrl !== undefined ? { prUrl: body.prUrl } : {}),
+      ...(body.figmaFrameUrls !== undefined ? { figmaFrameUrls: body.figmaFrameUrls } : {}),
     });
     return result.ok ? json(result, 200) : json({ error: result.error }, result.status);
   }

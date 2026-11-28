@@ -8,6 +8,7 @@ import {
   dialogTabBoundary,
   goalKey,
   milestoneResourceChoices,
+  heldMilestonesFor,
   milestonesAfterQuery,
   nextTabIndex,
   resourcesForProject,
@@ -205,8 +206,10 @@ describe('milestone review fixes', () => {
       laneDone: 1,
       nested: 0,
     });
-    assert.match(roadmap, /const board = boardCountsFromTasks\(shownTasks\)/);
-    assert.match(roadmap, /label: `Tasks · \$\{board\.lanes\}`/);
+    // The milestone page counts from the milestone's rows, not the snapshot tasks.
+    assert.match(roadmap, /const board = boardTaskCounts\(milestone\)/);
+    assert.match(roadmap, /label: tasksTabLabel\(milestone\)/);
+    assert.doesNotMatch(roadmap, /boardCountsFromTasks/);
   });
 
   it('traps dialog focus and restores it on close', () => {
@@ -243,6 +246,17 @@ describe('milestone review fixes', () => {
     assert.deepEqual(milestonesAfterQuery({ data: undefined, error: null, loading: false, previous }), []);
     assert.match(roadmap, /Milestones could not refresh\. Showing the last list that loaded\./);
     assert.match(roadmap, /milestonesAfterQuery\(/);
+  });
+
+  it('never shows one project the list remembered for another', () => {
+    const held = { projectId: 'p-portal', rows: [{ id: 'm1' }] };
+    assert.deepEqual(heldMilestonesFor(held, 'p-portal'), held.rows);
+    assert.deepEqual(heldMilestonesFor(held, 'p-other'), []);
+    assert.deepEqual(heldMilestonesFor(null, 'p-portal'), []);
+    assert.deepEqual(
+      milestonesAfterQuery({ data: undefined, error: null, loading: true, previous: heldMilestonesFor(held, 'p-other') }),
+      [],
+    );
   });
 
   it('labels the decision time as a review and keeps duplicate goal lines', () => {

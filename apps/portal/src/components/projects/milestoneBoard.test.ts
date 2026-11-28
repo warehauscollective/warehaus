@@ -19,6 +19,7 @@ import {
   milestoneBoardCards,
   milestoneCardOrigins,
   milestoneNestedToOpen,
+  milestoneOpenedTasks,
   pullRequestChip,
   milestoneBoardReadOnly,
   milestoneBoardStatus,
@@ -616,5 +617,53 @@ describe('card face', () => {
     ]);
     assert.deepEqual(milestoneNestedToOpen({ ...input, taskId: 'a' }), []);
     assert.deepEqual(milestoneNestedToOpen({ ...input, taskId: 'b1' }), []);
+  });
+
+  it('rebuilds the open task from the live rows, so the modal follows a change made elsewhere', () => {
+    const input = { milestone: { id: 'm-board', rows: list }, tasks: [] as PortalTask[], project };
+    const ids = (rows: PortalTask[] | null) => rows?.map((task) => task.id) ?? null;
+    assert.deepEqual(ids(milestoneOpenedTasks({ ...input, taskId: 'b' })), ['b', 'b1', 'b2']);
+    // An open child task still brings its parent and the parent's other child tasks.
+    assert.deepEqual(ids(milestoneOpenedTasks({ ...input, taskId: 'b2' })), ['b', 'b1', 'b2']);
+    assert.equal(milestoneOpenedTasks({ ...input, taskId: 'not-on-this-milestone' }), null);
+
+    // The same task after someone else finished it: the copy carries the new row.
+    const before = milestoneOpenedTasks({ ...input, taskId: 'b' })?.find((task) => task.id === 'b2');
+    const moved = list.map((row) => ({
+      ...row,
+      children: row.children.map((child) => (child.id === 'b2' ? { ...child, status: 'Done', isDone: true } : child)),
+    }));
+    const after = milestoneOpenedTasks({ ...input, milestone: { id: 'm-board', rows: moved }, taskId: 'b' })?.find(
+      (task) => task.id === 'b2',
+    );
+    assert.equal(before?.isDone, false);
+    assert.equal(after?.isDone, true);
+    assert.equal(after?.status, 'Done');
+  });
+});
+
+describe('milestone page task counts', async () => {
+  const { tasksTabLabel, tasksSubtitle, showsOverviewTasksPanel } = await import('./MilestoneDetailView');
+  const { boardTaskCounts } = await import('./milestoneTile');
+  const { MILESTONE_STATUSES } = await import('@convex/_lib/milestoneStatus');
+
+  it('counts the Tasks tab from the milestone rows, with no snapshot tasks', () => {
+    const five = milestone('Building');
+    assert.equal(five.rows.length, 5);
+    // The board draws one card per row from an empty tasks array; the label counts the same rows.
+    assert.equal(milestoneBoardCards(five.rows, [], project).filter((card) => !card.parentTaskId).length, 5);
+    assert.equal(tasksTabLabel(five), 'Tasks · 5');
+    assert.equal(
+      tasksSubtitle({ count: boardTaskCounts(five).lanes, phone: false }),
+      'Work needed to complete this milestone · 5 tasks',
+    );
+    assert.equal(tasksTabLabel(milestone('Planning', [])), 'Tasks · 0');
+  });
+
+  it('hides the overview Tasks panel while Building only', () => {
+    assert.equal(showsOverviewTasksPanel('Building'), false);
+    for (const status of MILESTONE_STATUSES.filter((value) => value !== 'Building')) {
+      assert.equal(showsOverviewTasksPanel(status), true, status);
+    }
   });
 });

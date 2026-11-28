@@ -57,6 +57,7 @@ export type FixturePatch = Partial<
     | 'creatorName'
     | 'localPreviewUrl'
     | 'figmaUrl'
+    | 'figmaFrameUrls'
   >
 > & {
   attachedIds?: string[];
@@ -259,7 +260,7 @@ export function taskTotal(milestone: MilestoneRoadmapView): number {
   return milestone.openCount + milestone.doneCount;
 }
 
-/** Nested subtasks on the milestone rows. Lane badges on the board come from boardCountsFromTasks. */
+/** Counts from the milestone rows, the rows the board draws: the Tasks tab label, View tasks and the Tasks subtitle. */
 export function boardTaskCounts(milestone: MilestoneRoadmapView): { lanes: number; laneDone: number; nested: number } {
   return {
     lanes: milestone.rows.length,

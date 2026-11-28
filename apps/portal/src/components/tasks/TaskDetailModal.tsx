@@ -30,7 +30,7 @@ import {
 } from '@/components/closeout/closeoutCopy';
 import { CloseoutToastHost, showCloseoutToast } from '@/components/closeout/closeoutToast';
 import { OverflowMenu, OverflowSheet, OverflowSheetItems, type OverflowAction } from '@/components/closeout/OverflowMenu';
-import { beginFieldSave, FIELD_SAVE_ERROR, finishFieldSave, idleField, retryFieldSave, type FieldAttempt } from './taskFieldSave';
+import { beginFieldSave, FIELD_SAVE_ERROR, finishFieldSave, idleField, releaseFieldDraft, retryFieldSave, type FieldAttempt } from './taskFieldSave';
 import type { TaskSourceLink } from './sourcePanelFixtures';
 import { TASK_KIND_LABELS, TASK_KINDS, taskKind, type TaskKind } from '@convex/_lib/designGate';
 
@@ -138,12 +138,18 @@ export function TaskDetailModal({
   // The header "…" menu. On a phone it is a sheet that takes the task sheet's place.
   const [overflowOpen, setOverflowOpen] = useState(false);
   const shownStatus = task ? displayedTaskStatus(task.status, task.stage) : '';
-  const [kindDraft, setKindDraft] = useState<{ id: string; kind: TaskKind } | null>(null);
+  const [kindDraft, setKindDraft] = useState<{ id: string; kind: TaskKind; from: TaskKind } | null>(null);
   const [kindError, setKindError] = useState<string | null>(null);
-  const shownKind: TaskKind = kindDraft && kindDraft.id === task?.id ? kindDraft.kind : taskKind(task ?? {});
+  const liveKind: TaskKind = taskKind(task ?? {});
+  // The picked kind shows only until the live task changes. Then the live kind shows.
+  const kindHeld = kindDraft && kindDraft.id === task?.id && kindDraft.from === liveKind ? kindDraft : null;
+  const shownKind: TaskKind = kindHeld ? kindHeld.kind : liveKind;
+  useEffect(() => {
+    setKindDraft((current) => (current && current.from !== liveKind ? null : current));
+  }, [liveKind]);
   const pickKind = (kind: TaskKind) => {
     if (!task || kind === shownKind) return;
-    setKindDraft({ id: task.id, kind });
+    setKindDraft({ id: task.id, kind, from: liveKind });
     setKindError(null);
     if (!live) return;
     void setTaskKind({ hostSlug, taskId: task.id as Id<'tasks'>, kind }).catch((err) => {
@@ -206,29 +212,42 @@ export function TaskDetailModal({
       : 'skip',
   );
   const peopleChoices = live ? assigneeRows.data ?? [] : people;
+  // A saved pick shows only until the live task changes. Then the field follows the live task.
+  const liveAssigneeId = task?.assigneeContactId ?? null;
+  const liveDate = task?.date ?? null;
+  const liveProjectId = task?.projectId ?? null;
+  const assigneeDraft = releaseFieldDraft(assigneeSlot, liveAssigneeId).draft;
+  const dueDraft = releaseFieldDraft(dueSlot, liveDate).draft;
+  const projectDraft = releaseFieldDraft(projectSlot, liveProjectId).draft;
+  useEffect(() => {
+    setAssigneeSlot((current) => releaseFieldDraft(current, liveAssigneeId));
+    setDueSlot((current) => releaseFieldDraft(current, liveDate));
+    setProjectSlot((current) => releaseFieldDraft(current, liveProjectId));
+  }, [liveAssigneeId, liveDate, liveProjectId]);
   const projectChoices = (live ? projectRows.data?.projects ?? [] : projects).filter(
-    (item) => item.id !== (projectSlot.draft?.id ?? task?.projectId),
+    (item) => item.id !== (projectDraft?.id ?? task?.projectId),
   );
   const visibleProjects = projectChoices.filter((item) => item.name.toLowerCase().includes(projectQuery.trim().toLowerCase()));
-  const shownAssignee = assigneeSlot.draft !== undefined ? assigneeSlot.draft.name : task?.assigneeName ?? null;
-  const shownAssigneeId = assigneeSlot.draft !== undefined ? assigneeSlot.draft.id : task?.assigneeContactId ?? null;
-  const shownDate = dueSlot.draft !== undefined ? dueSlot.draft : task?.date ?? null;
-  const shownProject = projectSlot.draft?.name ?? task?.projectName ?? '—';
+  const shownAssignee = assigneeDraft !== undefined ? assigneeDraft.name : task?.assigneeName ?? null;
+  const shownAssigneeId = assigneeDraft !== undefined ? assigneeDraft.id : liveAssigneeId;
+  const shownDate = dueDraft !== undefined ? dueDraft : liveDate;
+  const shownProject = projectDraft?.name ?? task?.projectName ?? '—';
   const saveAssignee = (pending: { id: string | null; name: string | null }) => {
-    setAssigneeSlot(beginFieldSave(pending));
+    setAssigneeSlot(beginFieldSave(pending, live ? liveAssigneeId : undefined));
     setFieldMenu(null);
     if (!live || !task) return;
     void setAssignee({ hostSlug, taskId: task.id as Id<'tasks'>, assigneeContactId: pending.id as Id<'contacts'> | null })
       .then((result) => {
         setAssigneeSlot((current) => {
           const next = finishFieldSave(current, result.ok);
-          return result.ok ? { ...next, draft: { id: pending.id, name: result.assigneeName } } : next;
+          // A draft the live task already replaced stays dropped.
+          return result.ok && next.draft !== undefined ? { ...next, draft: { id: pending.id, name: result.assigneeName } } : next;
         });
       })
       .catch(() => setAssigneeSlot((current) => finishFieldSave(current, false)));
   };
   const saveDue = (pending: string | null) => {
-    setDueSlot(beginFieldSave(pending));
+    setDueSlot(beginFieldSave(pending, live ? liveDate : undefined));
     setFieldMenu(null);
     if (!live || !task) return;
     void setDueDate({ hostSlug, taskId: task.id as Id<'tasks'>, date: pending })
@@ -240,7 +259,7 @@ export function TaskDetailModal({
       .catch(() => setDueSlot((current) => finishFieldSave(current, false)));
   };
   const saveProject = (pending: MoveTarget) => {
-    setProjectSlot(beginFieldSave(pending));
+    setProjectSlot(beginFieldSave(pending, live ? liveProjectId : undefined));
     setProjectTarget(null);
     if (!live || !task) return;
     setFieldBusy(true);

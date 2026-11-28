@@ -375,6 +375,12 @@ export default defineSchema({
      * milestone. No index. Clients never receive it.
      */
     figmaUrl: v.optional(v.string()),
+    /**
+     * Staff-only Figma frame links reported by finished design tasks, oldest
+     * first, at most 20. figmaUrl stays the hand-set link. No index. Clients
+     * never receive it.
+     */
+    figmaFrameUrls: v.optional(v.array(v.string())),
     /** Where the milestone was created. Staff only. Absent on older rows. */
     createdVia: v.optional(
       v.union(v.literal('grok'), v.literal('claude'), v.literal('portal'), v.literal('other')),

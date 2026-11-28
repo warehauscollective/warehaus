@@ -35,6 +35,7 @@ import { formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/v
 import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { scrollActiveIntoView, sectionEdgeFades, sectionEdgeMask, type EdgeFade } from '@/components/layout/sectionEdgeFade';
 import { TaskGlyph } from './TaskGlyph';
+import { boardOverrideHolds, liveBoardValue, pruneBoardOverrides, type BoardOverride } from './boardOverrides';
 
 export type BoardMode = 'status' | 'stage';
 
@@ -312,7 +313,7 @@ export function TaskBoard({
   const framedSurface = framed;
   /** A framed board keeps every lane on a phone. Other boards show one lane per tab. */
   const phoneTabs = phone && !framed;
-  const [overrides, setOverrides] = useState<Record<string, { mode: BoardMode; value: string; pending?: boolean }>>({});
+  const [overrides, setOverrides] = useState<Record<string, BoardOverride>>({});
   const [failed, setFailed] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<{ message: string; retry?: () => void; undo?: () => void } | null>(null);
   const [live, setLive] = useState('');
@@ -340,7 +341,8 @@ export function TaskBoard({
     () =>
       tasks.map((task) => {
         const override = overrides[task.id];
-        if (!override) return task;
+        // A row that changed since the move follows the live list, not the move.
+        if (!boardOverrideHolds(task, override)) return task;
         if (override.mode === 'status') return { ...task, status: override.value, isDone: override.value === 'Done' };
         return {
           ...task,
@@ -350,6 +352,10 @@ export function TaskBoard({
       }),
     [tasks, overrides],
   );
+  // A move is held only until the live row changes. Then it is dropped for good.
+  useEffect(() => {
+    setOverrides((current) => pruneBoardOverrides(tasks, current));
+  }, [tasks, overrides]);
   const columns = useMemo(() => {
     const lanes = boardLaneTasks(viewTasks);
     const sorted = boardColumns(lanes, mode, staff ? 'staff' : 'client');
@@ -401,7 +407,10 @@ export function TaskBoard({
   const commit = async (task: PortalTask, value: string, pullRequestLink?: string, answer?: string) => {
     const previous = mode === 'stage' ? task.stage ?? '' : task.status;
     if (previous === value) return;
-    setOverrides((current) => ({ ...current, [task.id]: { mode, value } }));
+    // The card may already show an earlier move. `from` is what the live list holds.
+    const liveTask = tasks.find((item) => item.id === task.id);
+    const from = liveTask ? liveBoardValue(liveTask, mode) : previous;
+    setOverrides((current) => ({ ...current, [task.id]: { mode, value, from } }));
     setFailed((current) => {
       const next = { ...current };
       delete next[task.id];
@@ -436,7 +445,7 @@ export function TaskBoard({
     if (mode === 'stage') {
       setOverrides((current) => ({
         ...current,
-        [task.id]: { mode, value, pending: result.notion !== undefined ? result.notion === 'queued' : result.pending !== false },
+        [task.id]: { mode, value, from, pending: result.notion !== undefined ? result.notion === 'queued' : result.pending !== false },
       }));
     }
     const saved = stageSavedFeedback({
