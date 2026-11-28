@@ -9,7 +9,8 @@
  *   POST /agent/complete  end a task run, or a planning run that failed
  *   POST /agent/release   hand a task or planning run back untouched (Claude hit its usage limit)
  *   POST /agent/build     progress from the one Cursor agent on a milestone
- *   POST /agent/ping      the runner saying it is alive, with the runs it holds (protocol 4). Hands out nothing
+ *   POST /agent/ping      the runner saying it is alive, with the runs it holds (protocol 4). Hands out nothing.
+ *                         Its answer, and a claim's, names held runs staff stopped (protocol 5)
  *   POST /agent/app-release  the latest runner app build, for the app to update itself between runs
  *   POST /agent/unpair    a registered runner revoking itself (Remove this runner in the Mac app)
  *
@@ -103,7 +104,9 @@ export const agentHttp = httpAction(async (ctx, request) => {
 
   const path = new URL(request.url).pathname;
   // The touch above is the whole heartbeat: at most one write a minute.
-  if (path === '/agent/ping') return json({ ok: true }, 200);
+  // Protocol 5: runs staff stopped that this runner still holds. It ends each one and reports nothing further.
+  const stop = 'stop' in alive && alive.stop?.length ? { stop: alive.stop } : {};
+  if (path === '/agent/ping') return json({ ok: true, ...stop }, 200);
   if (path === '/agent/unpair') {
     // Only a registered runner, proven by its own secret, removes itself. A RUNNER_TOKENS runner has nothing to revoke.
     if (!alive.registered) return json({ error: RUNNER_UNAUTHORIZED }, 401);
@@ -130,7 +133,7 @@ export const agentHttp = httpAction(async (ctx, request) => {
       ...(Array.isArray(body.held) ? { held: heldRunIds(body.held) } : {}),
       ...(signsOfLife ? { signsOfLife: true } : {}),
     });
-    return json(result, 200);
+    return json({ ...result, ...stop }, 200);
   }
   if (path === '/agent/events') {
     const result = await ctx.runMutation(internal.agent.recordEvent, {
@@ -167,6 +170,8 @@ export const agentHttp = httpAction(async (ctx, request) => {
       ...(body.commitSha !== undefined ? { commitSha: body.commitSha } : {}),
       ...(body.reason !== undefined ? { reason: body.reason } : {}),
       ...(body.prUrl !== undefined ? { prUrl: body.prUrl } : {}),
+      ...(body.cause !== undefined ? { cause: body.cause } : {}),
+      ...(body.output !== undefined ? { output: body.output } : {}),
     });
     return result.ok ? json(result, 200) : json({ error: result.error }, result.status);
   }

@@ -122,6 +122,13 @@ Portal decisions 0012 to 0014, milestone "Run troubleshooting", task 02. This is
 - The answer to a claim or a ping may carry `stop: [<runId>]` (`stopRequests`). The runner ends Claude Code for each run it holds (SIGTERM, then SIGKILL after 10 seconds), pushes nothing and makes no further call for that run. The Portal closes the run when staff press Stop run and ignores anything that arrives late. The Portal may repeat the id until the runner stops listing the run in `held`.
 - An older Portal ignores `cause` and `output` and never answers `stop`, so a protocol 5 runner works against it unchanged.
 
+The Portal's side, task 03 (`convex/agent.ts`):
+
+- A Blocked task carries `blockedCause` with its reason: the runner's `cause`, or by status for an older runner (`blocked` is Needs input, `failed` is Failed). The stuck sweep sets Stalled. A failed run keeps `failureOutput` on the run, cut to 4 KB and masked again before it is stored.
+- Staff mutations `rerunTask`, `answerAndRerun` and `stopRun` take the task. Rerun puts any Blocked task back in To Do and closes its Ask; it is refused on a Done task and while the task's last run is still winding down.
+- Answer and rerun stores the answer with the question on the task (`rerunAnswer`). A task claim carries it as `task.answer: { question, answer }`, or `null`. It is cleared when the task is Done or blocks again with Needs input. The runner does not put it in the prompt yet: that is still to build.
+- Stop run closes the run at once (`cancelled`, `stoppedAt`) and leaves the task Blocked with cause Failed and the reason "Stopped by <name>", so the next claim does not start it again. It opens no Ask: staff stopped it themselves. The run is not settled, so Rerun waits until the runner stops listing it in `held`, or 10 minutes. A result that arrives after the stop finds the run ended and writes nothing.
+
 ## Amendment, 2026-11-27: production starts the preview and stores its link
 
 ADR-0009 decision 2, first part of the Portal milestone "Preview link on the tile" (pull request 228). The Decision above says everything the work produces for review stays on dev. That still holds for where a preview runs. It no longer holds for where its link is stored: real milestones live on production, and until now their tile never got the link.

@@ -5,7 +5,15 @@
  * model call: the runner only starts the official `claude` binary.
  */
 
-import { COMPLETE_STATUSES, type CompleteStatus } from '@warehaus/runner-protocol';
+import {
+  COMPLETE_STATUSES,
+  RUN_CAUSES,
+  STOP_RUN_PROTOCOL,
+  outputTail,
+  type BlockedCause,
+  type CompleteStatus,
+  type RunCause,
+} from '@warehaus/runner-protocol';
 import { isBlockedTask } from './milestoneTasks';
 import { RUN_SILENT_BLOCK_AFTER_MS } from './buildRun';
 
@@ -335,22 +343,31 @@ export function cursorAgentToResume<T extends LeaseRun & { externalUrl?: string 
   return { externalId: latest.externalId, externalUrl: latest.externalUrl ?? null };
 }
 
-export { COMPLETE_STATUSES, type CompleteStatus };
+export { COMPLETE_STATUSES, type BlockedCause, type CompleteStatus, type RunCause };
 export const COMPLETE_STATUS_INVALID = 'Status must be done, blocked, or failed';
 export const BLOCKED_NEEDS_REASON = 'Say what the task is blocked on';
 export const COMMIT_SHA_INVALID = 'Commit must be a git SHA';
 
-/** What finishing a task run writes. `failed` hands the task back as To do. */
+/**
+ * What finishing a task run writes. `blocked` and `failed` both leave the task
+ * Blocked with a reason and a Blocked cause; neither puts it back in To do.
+ */
 export function completeDecision(input: {
   status: unknown;
   commitSha?: unknown;
   reason?: unknown;
+  cause?: unknown;
+  output?: unknown;
 }):
   | {
       ok: true;
       status: CompleteStatus;
       commitSha: string | null;
       reason: string | null;
+      /** Null on a done run. */
+      cause: RunCause | null;
+      /** The end of the agent's output. Only ever set with cause `failed`. */
+      output: string | null;
       task: { status: string; isDone: boolean };
       run: 'succeeded' | 'failed';
     }
@@ -364,19 +381,78 @@ export function completeDecision(input: {
   const reason = typeof input.reason === 'string' ? redactSecrets(input.reason.replace(/\s+/g, ' ').trim()).slice(0, 240) : '';
   if (status === 'blocked' && !reason) return { ok: false, reason: BLOCKED_NEEDS_REASON };
   if (status === 'done') {
-    return { ok: true, status, commitSha: sha || null, reason: null, task: { status: 'Done', isDone: true }, run: 'succeeded' };
+    return {
+      ok: true,
+      status,
+      commitSha: sha || null,
+      reason: null,
+      cause: null,
+      output: null,
+      task: { status: 'Done', isDone: true },
+      run: 'succeeded',
+    };
   }
-  if (status === 'blocked') {
-    return { ok: true, status, commitSha: sha || null, reason, task: { status: 'Blocked', isDone: false }, run: 'failed' };
-  }
+  const cause = runCause(status, input.cause);
   return {
     ok: true,
     status,
     commitSha: sha || null,
-    reason: reason || 'The run failed',
+    reason: status === 'blocked' ? reason : reason || 'The run failed',
+    cause,
+    output: cause === 'failed' ? failureOutput(input.output) : null,
     task: { status: 'Blocked', isDone: false },
     run: 'failed',
   };
+}
+
+/**
+ * The cause a run that is not done reports. A runner older than protocol 5
+ * sends none: its `blocked` was Claude's own note, so Needs input, and its
+ * `failed` is Failed. `stalled` is never taken from a runner.
+ */
+export function runCause(status: 'blocked' | 'failed', value: unknown): RunCause {
+  if (typeof value === 'string' && (RUN_CAUSES as readonly string[]).includes(value)) return value as RunCause;
+  return status === 'blocked' ? 'needs_input' : 'failed';
+}
+
+/** The stored end of a failed run's output: the last 4 KB, credentials masked. Null when there is none. */
+export function failureOutput(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  // Cut first so the mask sees what is kept, then again in case a mask grew it.
+  return outputTail(redactSecrets(outputTail(value))) || null;
+}
+
+export const RERUN_ANSWER_LIMIT = 2000;
+export const RERUN_ANSWER_REQUIRED = 'Write your answer first.';
+export const RERUN_NOT_NEEDS_INPUT = 'That task is not waiting on an answer.';
+
+/** Staff's answer for the next run's prompt: trimmed, credentials masked, cut to the limit. */
+export function rerunAnswerText(value: unknown): { ok: true; answer: string } | { ok: false; reason: string } {
+  const text = typeof value === 'string' ? redactSecrets(value.trim()).slice(0, RERUN_ANSWER_LIMIT) : '';
+  return text ? { ok: true, answer: text } : { ok: false, reason: RERUN_ANSWER_REQUIRED };
+}
+
+export const STOP_NO_RUN = 'No run is going on that task.';
+export const STOP_RUNNER_TOO_OLD = 'That runner cannot be stopped from the Portal. Update the runner first.';
+export const STOP_KIND_INVALID = 'Only a task run can be stopped.';
+
+/**
+ * Whether staff may stop a run. Only a running task run, and only on a runner
+ * that honours stop (protocol 5): an older runner would keep working and push.
+ */
+export function stopRunDecision(input: {
+  run: { status: string; kind: string } | null | undefined;
+  runnerProtocol: number | null | undefined;
+}): { ok: true } | { ok: false; reason: string } {
+  if (!input.run || input.run.status !== 'running') return { ok: false, reason: STOP_NO_RUN };
+  if (input.run.kind !== 'task') return { ok: false, reason: STOP_KIND_INVALID };
+  if ((input.runnerProtocol ?? 0) < STOP_RUN_PROTOCOL) return { ok: false, reason: STOP_RUNNER_TOO_OLD };
+  return { ok: true };
+}
+
+/** The reason a stopped task carries. */
+export function stoppedReason(by: string): string {
+  return `Stopped by ${by}`;
 }
 
 export const RELEASE_KIND_INVALID = 'Only a task or planning run can be handed back';
