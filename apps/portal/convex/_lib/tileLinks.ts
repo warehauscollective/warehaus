@@ -81,3 +81,28 @@ export function localPreviewHint(url: string | null | undefined): string {
     return 'preview not running';
   }
 }
+
+/** Most Figma frame links a milestone keeps. */
+export const FIGMA_FRAME_URL_LIMIT = 20;
+/** Most entries read from one report, so a huge payload costs nothing. */
+const FIGMA_FRAME_URL_SCAN = 100;
+
+/**
+ * The frame links a milestone stores after a design task reports some. Each
+ * one is cleaned with normalizeFigmaUrl(); invalid and duplicate links are
+ * dropped. New links join the ones already stored, and past the limit the
+ * oldest go. Returns null when the stored list would not change.
+ */
+export function figmaFrameUrlsAfter(stored: readonly string[] | undefined, reported: unknown): string[] | null {
+  if (!Array.isArray(reported)) return null;
+  const current = stored ?? [];
+  const next = [...current];
+  for (const value of reported.slice(0, FIGMA_FRAME_URL_SCAN)) {
+    if (typeof value !== 'string' || value.length > 2000) continue;
+    const url = normalizeFigmaUrl(value.trim());
+    if (url && !next.includes(url)) next.push(url);
+  }
+  const kept = next.slice(-FIGMA_FRAME_URL_LIMIT);
+  if (kept.length === current.length && kept.every((url, index) => url === current[index])) return null;
+  return kept;
+}

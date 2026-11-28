@@ -133,13 +133,14 @@ export function runnerClient({ url, token, runnerId, fetch: fetchImpl = globalTh
     unpair: () => post(RUNNER_PATHS.unpair, {}),
     event: ({ runId, type, summary }) => post(RUNNER_PATHS.events, { runId, type, summary }),
     writeTasks: ({ runId, tasks }) => post(RUNNER_PATHS.tasks, { runId, tasks }),
-    completeTask: ({ runId, status, commitSha, reason, prUrl }) =>
+    completeTask: ({ runId, status, commitSha, reason, prUrl, figmaFrameUrls }) =>
       post(RUNNER_PATHS.complete, {
         runId,
         status,
         ...(commitSha ? { commitSha } : {}),
         ...(reason ? { reason } : {}),
         ...(prUrl ? { prUrl } : {}),
+        ...(figmaFrameUrls?.length ? { figmaFrameUrls } : {}),
       }),
     failPlanning: ({ runId, reason }) => post(RUNNER_PATHS.complete, { runId, kind: 'planning', reason }),
     // The task goes back to To do (a plan back to the queue) with no Ask.

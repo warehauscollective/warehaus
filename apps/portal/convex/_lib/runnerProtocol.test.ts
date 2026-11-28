@@ -48,6 +48,10 @@ describe('runner protocol', () => {
     const complete = landed()[3]![1] as Record<string, unknown>;
     assert.equal(complete.status, 'done');
     assert.equal(complete.commitSha, 'abc1234');
+    assert.equal('figmaFrameUrls' in complete, false);
+    const frame = 'https://www.figma.com/design/key/File?node-id=1-2';
+    await client.completeTask({ runId: 'run5', status: 'done', figmaFrameUrls: [frame] });
+    assert.deepEqual((landed()[7]![1] as Record<string, unknown>).figmaFrameUrls, [frame]);
     assert.deepEqual((landed()[0]![1] as { repos: string[] }).repos, ['warehauscollective/warehaus']);
   });
 

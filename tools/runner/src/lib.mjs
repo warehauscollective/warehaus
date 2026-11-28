@@ -314,7 +314,7 @@ export const DESIGN_TASK_RULES = [
   '',
   'Work in Figma, in the Warehaus Studio file, under `docs/design/figma-protocol.md`: change existing components and frames only, hand-build 1440 Dark and 390 Dark, make Light frames instances, and add a Changelog line for each edit. Never publish the library.',
   '',
-  'Do not change code and do not commit. When the Figma work is done, write one line naming the frames you changed to `.runner/design-done.txt` and exit. Peter approves the designs before any build task starts.',
+  'Do not change code and do not commit. When the Figma work is done, write the Figma URL of each frame you changed to `.runner/design-done.txt`, one https://www.figma.com/design/... link with its `node-id` per line and nothing else on the line, and exit. The Portal shows those links on the milestone. Peter approves the designs before any build task starts.',
 ].join('\n');
 
 export function taskKindRules(kind) {
@@ -422,8 +422,39 @@ export function parseGitLog(text) {
  * How a finished task run is reported. A blocked file wins. A run Claude ended
  * on the account usage limit is released: the task goes back to To do, with
  * no Ask, and any commit it made stays in the worktree for the
- * next run. Otherwise no new commit means the run failed.
+ * next run. Otherwise no new commit means the run failed. A done design task
+ * carries the Figma frame links from its done note.
  */
+/** Most frame links one design task reports. The Portal caps the stored list too. */
+export const FIGMA_FRAME_URL_LIMIT = 20;
+
+/**
+ * The Figma frame links in a design task's done note: one URL per line. A
+ * line that is not an https figma.com link is skipped, so an older note that
+ * only names the frames still counts as done and sends no links.
+ */
+export function figmaFrameUrls(text) {
+  const urls = [];
+  for (const line of String(text ?? '').split(/\r?\n/)) {
+    const raw = line.trim().replace(/^[-*]\s+/, '');
+    if (!raw || /\s/.test(raw)) continue;
+    let url;
+    try {
+      url = new URL(raw);
+    } catch {
+      continue;
+    }
+    if (url.protocol !== 'https:' || url.username || url.password) continue;
+    const host = url.hostname.toLowerCase();
+    if (host !== 'figma.com' && host !== 'www.figma.com') continue;
+    if (url.pathname === '/' || url.pathname === '') continue;
+    const clean = url.toString();
+    if (!urls.includes(clean)) urls.push(clean);
+    if (urls.length >= FIGMA_FRAME_URL_LIMIT) break;
+  }
+  return urls;
+}
+
 export function taskOutcome({ before, after, blockedReason, usageLimit = null, designDone = '' }) {
   const reason = (blockedReason ?? '').replace(/\s+/g, ' ').trim();
   const [done, blocked, failed] = COMPLETE_STATUSES;
@@ -431,9 +462,11 @@ export function taskOutcome({ before, after, blockedReason, usageLimit = null, d
   if (usageLimit) return { status: RELEASED, reason: usageLimitReason(usageLimit) };
   // A design task works in Figma and commits nothing. Its done note is the proof.
   const designNote = (designDone ?? '').replace(/\s+/g, ' ').trim();
-  if ((!after || after === before) && designNote) return { status: done };
+  const frames = figmaFrameUrls(designDone);
+  const links = frames.length ? { figmaFrameUrls: frames } : {};
+  if ((!after || after === before) && designNote) return { status: done, ...links };
   if (!after || after === before) return { status: failed, reason: 'The run ended with no new commit' };
-  return { status: done, commitSha: after };
+  return { status: done, commitSha: after, ...links };
 }
 
 /** A run handed back untouched. Not a Portal complete status: it travels on /agent/release. */

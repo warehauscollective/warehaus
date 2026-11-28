@@ -32,14 +32,15 @@ import { classifyClaimable } from './milestoneTaskSet';
 import * as agentModule from '../agent';
 import { claimNext, completeTask, releaseRun, releaseStuckRuns, reportBuild, touchRunner, writePlannedTasks } from '../agent';
 import crons from '../crons';
-import { create as createStaffMilestone, createFromAi, setStatus } from '../milestones';
+import { create as createStaffMilestone, createFromAi, listForClientProject, listForProject, setStatus } from '../milestones';
 import { createMilestone, listOpenAsks, updateMilestone } from '../portalApi';
 import { setAgentDriver, setAgentRepo } from '../projects';
 import { heldRunIds, openRunDecision, RUNNER_BUSY, RUNNER_MAX_SLOTS, RUNNER_NEEDS_REPO, runnerSlots } from './agentRun';
 import { PortalAuthError } from './identity';
 import { memoryCtx, type MemoryCtx } from './memoryCtx.testkit';
-import { seedMilestone, seedMilestoneWorld } from './seedRows.testkit';
+import { seedMilestone, seedMilestoneWorld, seedProject, seedTask } from './seedRows.testkit';
 import { sha256Hex } from './tokenCrypto';
+import { FIGMA_FRAME_URL_LIMIT, figmaFrameUrlsAfter } from './tileLinks';
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
@@ -1159,5 +1160,85 @@ describe('run lease', () => {
     // Only the newest build counts.
     assert.equal(cursorAgentToResume([{ kind: 'build', status: 'cancelled', settledAt: NOW }, base]), null);
     assert.equal(cursorAgentToResume([{ kind: 'task', status: 'cancelled' }]), null);
+  });
+});
+
+describe('Figma frame links from a design task', () => {
+  const FRAME_A = 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=689-31057';
+  const FRAME_B = 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=1106-8680';
+  const HAND_SET = 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio';
+
+  /** A visual milestone in the client's own org, so the client read has a milestone to show. */
+  function visual(t: MemoryCtx) {
+    t.actor('client');
+    const orgId = t.rows('clients').find((row) => row.slug === 'northwind')!._id as string;
+    const projectId = seedProject(t, orgId, { agentRepo: REPO });
+    const milestoneId = seedMilestone(t, orgId, projectId, {
+      status: 'Building',
+      branch: 'milestone/launch',
+      publishToWarehaus: true,
+      figmaUrl: HAND_SET,
+    });
+    const task = (fields: Record<string, unknown>) => seedTask(t, orgId, projectId, { milestoneId, source: SOURCE, ...fields });
+    const designId = task({ name: 'Design the card', kind: 'design', milestoneOrder: 0 });
+    const buildId = task({ name: 'Build the card', milestoneOrder: 1 });
+    return { orgId, projectId, milestoneId, designId, buildId };
+  }
+
+  it('stores the cleaned links on the milestone for staff only, and a repeat writes nothing', async () => {
+    const t = memoryCtx();
+    const { milestoneId, projectId, designId } = visual(t);
+    const run = await claim(t);
+    assert.equal(run.kind === 'task' && run.task?.id, designId);
+    const report = {
+      runnerId: RUNNER,
+      runId: run.runId,
+      status: 'done',
+      figmaFrameUrls: [` ${FRAME_A} `, 'http://www.figma.com/design/insecure', 'https://example.com/design/x', FRAME_A, 7, FRAME_B],
+    };
+    const done = await t.call<{ ok: boolean; duplicate: boolean; milestoneStatus: string }>(completeTask, report);
+    assert.deepEqual([done.ok, done.duplicate, done.milestoneStatus], [true, false, 'Building']);
+    assert.deepEqual(t.row(milestoneId)?.figmaFrameUrls, [FRAME_A, FRAME_B]);
+    // The hand-set link is left alone.
+    assert.equal(t.row(milestoneId)?.figmaUrl, HAND_SET);
+
+    const staff = await t.call<Array<Record<string, unknown>>>(listForProject, { projectId }, { as: 'staff' });
+    assert.deepEqual(staff[0]?.figmaFrameUrls, [FRAME_A, FRAME_B]);
+    const client = await t.call<Array<Record<string, unknown>>>(listForClientProject, { projectId }, { as: 'client' });
+    assert.equal(client.length, 1);
+    assert.equal('figmaFrameUrls' in client[0]!, false);
+    assert.doesNotMatch(JSON.stringify(client), /figma\.com/);
+
+    const tables = ['agentRuns', 'agentEvents', 'tasks', 'milestones', 'milestoneNotes', 'activity'];
+    const before = JSON.stringify(tables.map((table) => t.rows(table)));
+    const again = await t.call<{ duplicate: boolean }>(completeTask, report);
+    assert.equal(again.duplicate, true);
+    assert.equal(JSON.stringify(tables.map((table) => t.rows(table))), before);
+  });
+
+  it('keeps links only from a design task that is done', async () => {
+    const t = memoryCtx();
+    const { milestoneId } = visual(t);
+    const design = await claim(t);
+    await t.call(completeTask, { runnerId: RUNNER, runId: design.runId, status: 'blocked', reason: 'needs the brief', figmaFrameUrls: [FRAME_A] });
+    assert.equal(t.row(milestoneId)?.figmaFrameUrls, undefined);
+
+    const plain = memoryCtx();
+    const built = building(plain, ['Build only', 'Second']);
+    const run = await claim(plain);
+    await plain.call(completeTask, { runnerId: RUNNER, runId: run.runId, status: 'done', commitSha: SHA, figmaFrameUrls: [FRAME_A] });
+    assert.equal(plain.row(built.milestoneId)?.figmaFrameUrls, undefined);
+  });
+
+  it('adds new links to the stored ones, skips a no-op, and keeps the newest twenty', () => {
+    assert.equal(figmaFrameUrlsAfter([FRAME_A], [FRAME_A, 'nope']), null);
+    assert.equal(figmaFrameUrlsAfter(undefined, 'not a list'), null);
+    assert.equal(figmaFrameUrlsAfter(undefined, []), null);
+    assert.deepEqual(figmaFrameUrlsAfter([FRAME_A], [FRAME_B, FRAME_A]), [FRAME_A, FRAME_B]);
+    const many = Array.from({ length: 25 }, (_, index) => `https://www.figma.com/design/key/File?node-id=1-${index}`);
+    const kept = figmaFrameUrlsAfter([FRAME_A], many);
+    assert.equal(kept?.length, FIGMA_FRAME_URL_LIMIT);
+    assert.equal(kept?.at(-1), many[24]);
+    assert.equal(kept?.includes(FRAME_A), false);
   });
 });

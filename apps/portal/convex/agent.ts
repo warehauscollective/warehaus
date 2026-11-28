@@ -60,6 +60,7 @@ import { changeMilestoneStatus } from './_lib/milestoneLifecycle';
 import type { MilestoneStatus } from './_lib/milestoneStatus';
 import { PORTAL_MILESTONE_TASK_SOURCE, plannerDraftToArchive, stageForNewMilestoneTask } from './_lib/milestoneTasks';
 import { taskKind } from './_lib/designGate';
+import { figmaFrameUrlsAfter } from './_lib/tileLinks';
 import { syncDesignAsk } from './_lib/designGateStore';
 import { loadClaimableTasks, loadMilestoneTaskSet, type LoadedTask } from './_lib/milestoneTaskSet';
 import { PortalAuthError } from './_lib/identity';
@@ -634,7 +635,8 @@ export const recordEvent = internalMutation({
 /**
  * Ends a task run. `done` closes the task and stores the commit. `blocked`
  * keeps the reason on the task. `failed` hands the task back as To do. When
- * the last open task is done the milestone moves to Ready to Ship. A repeat
+ * the last open task is done the milestone moves to Ready to Ship. A done
+ * design task adds its Figma frame links to the milestone. A repeat
  * for a run that already ended returns the stored outcome and writes nothing.
  */
 export const completeTask = internalMutation({
@@ -646,6 +648,8 @@ export const completeTask = internalMutation({
     reason: v.optional(v.any()),
     /** The milestone's pull request, when the runner opened or found one. */
     prUrl: v.optional(v.any()),
+    /** Figma frame links from a design task's done note. Kept only for a done design task. */
+    figmaFrameUrls: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const owned = await ownedRun(ctx, args.runnerId, args.runId);
@@ -680,6 +684,10 @@ export const completeTask = internalMutation({
     });
     const prUrl = pullRequestUrl(args.prUrl);
     if (prUrl && milestone.prUrl !== prUrl) await ctx.db.patch(milestone._id, { prUrl });
+    if (decision.status === 'done' && taskKind(task) === 'design') {
+      const figmaFrameUrls = figmaFrameUrlsAfter(milestone.figmaFrameUrls, args.figmaFrameUrls);
+      if (figmaFrameUrls) await ctx.db.patch(milestone._id, { figmaFrameUrls });
+    }
     const order = String((task.milestoneOrder ?? 0) + 1).padStart(2, '0');
     const sha = shortSha(decision.commitSha);
     await writeEvent(ctx, {

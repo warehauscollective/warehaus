@@ -432,6 +432,7 @@ async function toRoadmap(
     dueDate: milestone.dueDate ?? null,
     ...(audience === 'staff' && milestone.localPreviewUrl ? { localPreviewUrl: milestone.localPreviewUrl } : {}),
     ...(audience === 'staff' && milestone.figmaUrl ? { figmaUrl: milestone.figmaUrl } : {}),
+    ...(audience === 'staff' && milestone.figmaFrameUrls?.length ? { figmaFrameUrls: milestone.figmaFrameUrls } : {}),
     ...(audience === 'staff' && milestone.designApprovedAt ? { designApprovedAt: milestone.designApprovedAt } : {}),
     ...(audience === 'staff' ? { designGate: roadmapDesignGate(inputs, milestone) } : {}),
     ...(audience === 'staff' ? roadmapDeployMark(milestone) : {}),
