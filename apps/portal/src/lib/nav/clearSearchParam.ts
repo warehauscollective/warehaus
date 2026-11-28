@@ -18,3 +18,12 @@ export function setSearchParams(entries: Record<string, string>): void {
   const qs = url.searchParams.toString();
   window.history.replaceState(null, '', `${url.pathname}${qs ? `?${qs}` : ''}${url.hash}`);
 }
+
+/** Replace the whole query without a navigation, so Back skips it. `search` has no leading `?`. */
+export function replaceSearch(search: string): void {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  const current = url.search.startsWith('?') ? url.search.slice(1) : url.search;
+  if (current === search) return;
+  window.history.replaceState(null, '', `${url.pathname}${search ? `?${search}` : ''}${url.hash}`);
+}
