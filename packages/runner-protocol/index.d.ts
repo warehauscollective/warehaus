@@ -17,18 +17,26 @@ export declare const RUNNER_PAIR_PATHS: Readonly<{
 }>;
 export declare const RUNNER_PROTOCOL_VERSION: number;
 export declare const RUNNER_PROTOCOL_MIN: number;
+export declare const STOP_RUN_PROTOCOL: number;
 export declare const RUNNER_PROTOCOL_HEADER: 'x-runner-protocol';
 export declare const PLAN_TASKS_MIN: 3;
 export declare const PLAN_TASKS_MAX: 10;
 export declare const COMPLETE_STATUSES: readonly ['done', 'blocked', 'failed'];
 export type CompleteStatus = (typeof COMPLETE_STATUSES)[number];
+export declare const BLOCKED_CAUSES: readonly ['needs_input', 'failed', 'stalled'];
+export type BlockedCause = (typeof BLOCKED_CAUSES)[number];
+export declare const RUN_CAUSES: readonly ['needs_input', 'failed'];
+export type RunCause = (typeof RUN_CAUSES)[number];
+export declare const FAILURE_OUTPUT_BYTES: 4096;
+export declare function outputTail(text: unknown, maxBytes?: number): string;
+export declare function stopRequests(reply: unknown): string[];
 export declare const MILESTONE_BRANCH: RegExp;
 export declare function isMilestoneBranch(value: unknown): value is string;
 
 export type RunnerClient = {
   post(path: string, body: unknown): Promise<Record<string, unknown>>;
   claim(input: { mode: string; repos: string[]; paused?: boolean; slots?: number; held?: string[] }): Promise<Record<string, unknown>>;
-  ping(input?: { paused?: boolean }): Promise<Record<string, unknown>>;
+  ping(input?: { paused?: boolean; held?: string[] }): Promise<Record<string, unknown>>;
   appRelease(): Promise<Record<string, unknown>>;
   unpair(): Promise<Record<string, unknown>>;
   event(input: { runId: string; type: string; summary: string }): Promise<Record<string, unknown>>;
@@ -39,6 +47,8 @@ export type RunnerClient = {
     commitSha?: string;
     reason?: string;
     prUrl?: string;
+    cause?: RunCause;
+    output?: string;
   }): Promise<Record<string, unknown>>;
   failPlanning(input: { runId: string; reason: string }): Promise<Record<string, unknown>>;
   release(input: { runId: string; reason?: string; until?: number }): Promise<Record<string, unknown>>;

@@ -27,6 +27,9 @@ import {
   repoFromRemote,
   selectDriver,
   taskOutcome,
+  failureOutput,
+  runStops,
+  STOPPED,
   taskPrompt,
   designApprovalLine,
   worktreeName,
@@ -293,8 +296,24 @@ describe('task outcome', () => {
     assert.equal(taskOutcome({ before: 'aaa', after: 'aaa', blockedReason: '' }).status, 'failed');
     assert.deepEqual(taskOutcome({ before: 'aaa', after: 'aaa', blockedReason: ' needs a Figma frame \n' }), {
       status: 'blocked',
+      cause: 'needs_input',
       reason: 'needs a Figma frame',
     });
+  });
+
+  it('carries its cause when it is not done: a blocked note needs input, anything else failed', () => {
+    assert.deepEqual(taskOutcome({ before: 'aaa', after: 'aaa', blockedReason: '' }), {
+      status: 'failed',
+      cause: 'failed',
+      reason: 'The run ended with no new commit',
+    });
+    assert.deepEqual(taskOutcome({ before: 'aaa', after: 'bbb', blockedReason: 'Which font?' }), {
+      status: 'blocked',
+      cause: 'needs_input',
+      reason: 'Which font?',
+      commitSha: 'bbb',
+    });
+    assert.equal('cause' in taskOutcome({ before: 'aaa', after: 'bbb', blockedReason: '' }), false);
   });
 
   it('counts a design task done with its done note and no commit', () => {
@@ -324,8 +343,10 @@ describe('task outcome', () => {
     const cli = read('./cli.mjs');
     assert.match(cli, /await waitIdle\(config, coolDown == null \? idleDelayMs\(empty\)/);
     // The ping goes through the protocol client and carries Paused, and the runs held (protocol 4 signs of life).
-    assert.match(cli, /client\(config\)\.ping\(\{ paused: control\.paused, held: heldRuns\(\) \}\)/);
-    assert.match(cli, /client\(config\)\.ping\(\{ held: heldRuns\(\) \}\)/);
+    assert.match(cli, /ping\(config, \{ paused: control\.paused, held: heldRuns\(\) \}\)/);
+    assert.match(cli, /ping\(config, \{ held: heldRuns\(\) \}\)/);
+    // No ping skips the one wrapper that honours a stop in the answer (protocol 5).
+    assert.equal(cli.match(/client\(config\)\.ping\(/g)?.length, 1);
   });
 
   it('idleWait runs its pings: one between slices, none after the last, failures skipped', async () => {
@@ -703,5 +724,68 @@ describe('usage limit', () => {
     assert.ok(cli.indexOf('usage.remainingMs()') < cli.indexOf('client(config).claim('));
     assert.match(cli, /client\(config\)\.release\(/);
     assert.match(cli, /if \(outcome\.status === RELEASED\)/);
+  });
+});
+
+describe('failure output', () => {
+  it('keeps the last 4 KB of what the agent wrote', () => {
+    const out = failureOutput(`${'x'.repeat(9000)}\nError: build failed\n`);
+    assert.equal(new TextEncoder().encode(out).length, 4096);
+    assert.ok(out.endsWith('Error: build failed'));
+    assert.equal(failureOutput(''), '');
+    assert.equal(failureOutput(undefined), '');
+  });
+
+  it('never sends a token, and drops terminal colour codes', () => {
+    const out = failureOutput('\u001b[31mfailed\u001b[0m with ghp_abcdefghijklmnopqrstuvwxyz0123 and Bearer abcdefghijklmnop\r\nnext');
+    assert.equal(out, 'failed with [redacted] and [redacted]\nnext');
+  });
+});
+
+describe('stop run', () => {
+  it('ends the agent of a run it holds, once, and marks the run stopped', () => {
+    const stops = runStops();
+    let killed = 0;
+    stops.begin('run1');
+    stops.watch('run1', () => void (killed += 1));
+    assert.equal(stops.stopped('run1'), false);
+    assert.deepEqual(stops.stop(['run1', 'other']), ['run1']);
+    assert.equal(killed, 1);
+    assert.equal(stops.stopped('run1'), true);
+    // The Portal repeats the stop on every sign of life until the run is gone.
+    assert.deepEqual(stops.stop(['run1']), []);
+    assert.equal(killed, 1);
+    assert.equal(STOPPED, 'stopped');
+  });
+
+  it('ignores a run it does not hold, and forgets a run that ended', () => {
+    const stops = runStops();
+    assert.deepEqual(stops.stop(['ghost']), []);
+    assert.equal(stops.stopped('ghost'), false);
+    stops.begin('run1');
+    stops.stop(['run1']);
+    stops.end('run1');
+    assert.equal(stops.stopped('run1'), false);
+    assert.deepEqual(stops.stop(undefined), []);
+  });
+
+  it('ends an agent that starts after the stop arrived', () => {
+    const stops = runStops();
+    let killed = 0;
+    stops.begin('run1');
+    // The stop came while the runner was still cloning: no process yet.
+    assert.deepEqual(stops.stop(['run1']), ['run1']);
+    stops.watch('run1', () => void (killed += 1));
+    assert.equal(killed, 1);
+  });
+
+  it('does not end a process that already exited', () => {
+    const stops = runStops();
+    let killed = 0;
+    stops.begin('run1');
+    const unwatch = stops.watch('run1', () => void (killed += 1));
+    unwatch();
+    assert.deepEqual(stops.stop(['run1']), ['run1']);
+    assert.equal(killed, 0);
   });
 });

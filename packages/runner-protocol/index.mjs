@@ -48,9 +48,14 @@ export const RUNNER_PAIR_PATHS = Object.freeze({
  * sends no header is version 1. Version 3 adds parallel runs: a claim sends
  * `slots` and the run ids it `held`s. Version 4 adds signs of life: pings send
  * `held` too, and the Portal stamps each held run so a run whose runner stops
- * answering shows Stalled after 5 minutes. Version 2 still works, one run at a time.
+ * answering shows Stalled after 5 minutes. Version 5 adds run troubleshooting:
+ * a task result carries its `cause` and, on failure, the last output; and the
+ * answer to a claim or a ping can list runs to `stop`. Version 2 still works,
+ * one run at a time.
  */
-export const RUNNER_PROTOCOL_VERSION = 4;
+export const RUNNER_PROTOCOL_VERSION = 5;
+/** The first version that honours `stop`. The Portal offers Stop run only on a run from such a runner. */
+export const STOP_RUN_PROTOCOL = 5;
 export const RUNNER_PROTOCOL_MIN = 2;
 export const RUNNER_PROTOCOL_HEADER = 'x-runner-protocol';
 
@@ -60,6 +65,43 @@ export const PLAN_TASKS_MAX = 10;
 
 /** How a task run ends. */
 export const COMPLETE_STATUSES = Object.freeze(['done', 'blocked', 'failed']);
+
+/**
+ * Why a task is Blocked. The runner reports the first two with the result:
+ * `needs_input` when Claude left a question, `failed` for everything else that
+ * went wrong. `stalled` is the Portal's own: the run gave no sign of life.
+ */
+export const BLOCKED_CAUSES = Object.freeze(['needs_input', 'failed', 'stalled']);
+export const RUN_CAUSES = Object.freeze(['needs_input', 'failed']);
+
+/** The most agent output a failed run sends, in UTF-8 bytes: "the last 4 KB". */
+export const FAILURE_OUTPUT_BYTES = 4096;
+
+/**
+ * The end of `text` that fits in `maxBytes` of UTF-8, never starting inside a
+ * character. Both sides use it: the runner before it sends, the Portal before
+ * it stores.
+ */
+export function outputTail(text, maxBytes = FAILURE_OUTPUT_BYTES) {
+  const value = typeof text === 'string' ? text : '';
+  const bytes = new TextEncoder().encode(value);
+  if (bytes.length <= maxBytes) return value;
+  let start = bytes.length - maxBytes;
+  while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start += 1;
+  return new TextDecoder().decode(bytes.subarray(start));
+}
+
+/**
+ * The run ids the Portal asks the runner to stop, from the answer to a claim
+ * or a ping: `{ stop: ['<runId>'] }`. Staff pressed Stop run. The runner ends
+ * the agent for each one it holds and reports nothing further on it; the
+ * Portal has already closed the run and ignores a late result.
+ */
+export function stopRequests(reply) {
+  const stop = reply && typeof reply === 'object' ? reply.stop : null;
+  if (!Array.isArray(stop)) return [];
+  return [...new Set(stop.filter((id) => typeof id === 'string' && id.length > 0))];
+}
 
 /** Only `milestone/<slug>` branches are ever created or pushed. */
 export const MILESTONE_BRANCH = /^milestone\/[a-z0-9][a-z0-9-]{0,47}$/;
@@ -123,6 +165,7 @@ export function runnerClient({ url, token, runnerId, fetch: fetchImpl = globalTh
       }),
     // The runner app sends `paused` on every call so the Portal can show Paused.
     // `held` is every run in progress: each one gets a sign of life (protocol 4).
+    // The answer may name runs to stop (protocol 5): read it with stopRequests().
     ping: ({ paused, held } = {}) =>
       post(RUNNER_PATHS.ping, {
         ...(paused != null ? { paused } : {}),
@@ -133,13 +176,17 @@ export function runnerClient({ url, token, runnerId, fetch: fetchImpl = globalTh
     unpair: () => post(RUNNER_PATHS.unpair, {}),
     event: ({ runId, type, summary }) => post(RUNNER_PATHS.events, { runId, type, summary }),
     writeTasks: ({ runId, tasks }) => post(RUNNER_PATHS.tasks, { runId, tasks }),
-    completeTask: ({ runId, status, commitSha, reason, prUrl }) =>
+    // `cause` says why a run that is not done stopped. `output` is the end of the
+    // agent's output and leaves this machine on a failed run only.
+    completeTask: ({ runId, status, commitSha, reason, prUrl, cause, output }) =>
       post(RUNNER_PATHS.complete, {
         runId,
         status,
         ...(commitSha ? { commitSha } : {}),
         ...(reason ? { reason } : {}),
         ...(prUrl ? { prUrl } : {}),
+        ...(cause && status !== 'done' ? { cause } : {}),
+        ...(output && status === 'failed' ? { output: outputTail(output) } : {}),
       }),
     failPlanning: ({ runId, reason }) => post(RUNNER_PATHS.complete, { runId, kind: 'planning', reason }),
     // The task goes back to To do (a plan back to the queue) with no Ask.

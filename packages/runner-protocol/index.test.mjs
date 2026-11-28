@@ -1,6 +1,18 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { RUNNER_PATHS, isMilestoneBranch, runnerClient } from './index.mjs';
+import {
+  BLOCKED_CAUSES,
+  FAILURE_OUTPUT_BYTES,
+  RUNNER_PATHS,
+  RUNNER_PROTOCOL_HEADER,
+  RUNNER_PROTOCOL_VERSION,
+  RUN_CAUSES,
+  STOP_RUN_PROTOCOL,
+  isMilestoneBranch,
+  outputTail,
+  runnerClient,
+  stopRequests,
+} from './index.mjs';
 
 function recorder(status = 200, body = { ok: true }) {
   const seen = [];
@@ -65,6 +77,68 @@ describe('runner client', () => {
       ['u/agent/ping', {}],
       [`u${RUNNER_PATHS.unpair}`, {}],
     ]);
+  });
+});
+
+// The contract for run troubleshooting (protocol 5): what the runner sends
+// with a result, and what the Portal's answer to a sign of life may ask.
+describe('run troubleshooting contract', () => {
+  const api = (fetch) => runnerClient({ url: 'u', token: 't', runnerId: 'r', fetch });
+
+  it('speaks a version that honours stop', async () => {
+    const { seen, fetch } = recorder();
+    await api(fetch).ping({ held: ['run1'] });
+    assert.equal(seen[0].init.headers[RUNNER_PROTOCOL_HEADER], String(RUNNER_PROTOCOL_VERSION));
+    assert.ok(RUNNER_PROTOCOL_VERSION >= STOP_RUN_PROTOCOL);
+  });
+
+  it('names the causes: the runner reports two, the Portal adds stalled', () => {
+    assert.deepEqual([...RUN_CAUSES], ['needs_input', 'failed']);
+    assert.deepEqual([...BLOCKED_CAUSES], ['needs_input', 'failed', 'stalled']);
+  });
+
+  it('sends the cause with a blocked or failed result, and never with done', async () => {
+    const { seen, fetch } = recorder();
+    await api(fetch).completeTask({ runId: 'r1', status: 'blocked', reason: 'Which font?', cause: 'needs_input' });
+    await api(fetch).completeTask({ runId: 'r2', status: 'failed', reason: 'No commit', cause: 'failed' });
+    await api(fetch).completeTask({ runId: 'r3', status: 'done', commitSha: 'abc', cause: 'failed' });
+    assert.deepEqual(seen.map((call) => call.body), [
+      { runId: 'r1', status: 'blocked', reason: 'Which font?', cause: 'needs_input' },
+      { runId: 'r2', status: 'failed', reason: 'No commit', cause: 'failed' },
+      { runId: 'r3', status: 'done', commitSha: 'abc' },
+    ]);
+  });
+
+  it('sends agent output on a failed result only, cut to the last 4 KB', async () => {
+    const { seen, fetch } = recorder();
+    const long = `${'a'.repeat(6000)}the end`;
+    await api(fetch).completeTask({ runId: 'r1', status: 'failed', reason: 'x', cause: 'failed', output: long });
+    await api(fetch).completeTask({ runId: 'r2', status: 'blocked', reason: 'x', cause: 'needs_input', output: long });
+    await api(fetch).completeTask({ runId: 'r3', status: 'done', commitSha: 'abc', output: long });
+    await api(fetch).completeTask({ runId: 'r4', status: 'failed', reason: 'x', cause: 'failed', output: '' });
+    assert.equal(seen[0].body.output.length, FAILURE_OUTPUT_BYTES);
+    assert.ok(seen[0].body.output.endsWith('the end'));
+    for (const call of seen.slice(1)) assert.equal('output' in call.body, false);
+  });
+
+  it('cuts output by bytes without splitting a character', () => {
+    assert.equal(outputTail('short'), 'short');
+    assert.equal(outputTail(null), '');
+    // Each é is two bytes: 5 bytes fit two whole ones, and the half character goes.
+    assert.equal(outputTail('ééééé', 5), 'éé');
+    const tail = outputTail(`${'✓'.repeat(3000)}`);
+    assert.ok(new TextEncoder().encode(tail).length <= FAILURE_OUTPUT_BYTES);
+    assert.equal(tail.includes('\uFFFD'), false);
+  });
+
+  it('reads the runs to stop from the answer to a ping or a claim', async () => {
+    const { fetch } = recorder(200, { ok: true, stop: ['run1', 'run1', '', 7, 'run2'] });
+    assert.deepEqual(stopRequests(await api(fetch).ping({ held: ['run1', 'run2'] })), ['run1', 'run2']);
+    assert.deepEqual(stopRequests(await api(fetch).claim({ mode: 'headless', repos: [], held: ['run1'] })), ['run1', 'run2']);
+    // A Portal that predates stop, or has nothing to stop, asks nothing.
+    for (const reply of [{ ok: true }, { stop: 'run1' }, { stop: null }, null, undefined, 'stop']) {
+      assert.deepEqual(stopRequests(reply), []);
+    }
   });
 });
 
