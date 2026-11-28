@@ -5,7 +5,7 @@ import { Suspense, useEffect } from 'react';
 import { PortalDataRetryProvider } from '@/components/providers/PortalDataRetry';
 import { PortalTabProvider } from '@/components/providers/PortalTabProvider';
 import { PortalViewProvider } from '@/components/providers/PortalViewProvider';
-import { ShellProvider } from '@/lib/shell';
+import { ShellProvider, ShellSync } from '@/lib/shell';
 import { PORTAL_PANEL_GAP } from '@/lib/design/portal-chrome';
 import { NoticeBell } from '@/components/notices/NoticeBell';
 import { RunnerPairLink } from '@/components/projects/RunnerPairLink';
@@ -44,6 +44,7 @@ function PortalChrome({ children }: { children: ReactNode }) {
     <div className="ds-scope portal-chrome relative h-[100dvh] overflow-hidden">
       <PortalToastLive />
       <NoticeBell />
+      <ShellSync />
       <Suspense fallback={null}>
         <RunnerPairLink />
       </Suspense>
