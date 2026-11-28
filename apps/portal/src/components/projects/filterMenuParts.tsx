@@ -62,8 +62,11 @@ export function toggled<T>(list: readonly T[], value: T): T[] {
 
 export function triggerStyle(open: boolean): CSSProperties {
   return {
-    minHeight: 35,
-    padding: '8px 12px',
+    // 35 tall, as Molecule/Filter/Trigger: 17 line + 8 + 8 + the border.
+    boxSizing: 'border-box',
+    height: 35,
+    padding: '0 12px',
+    lineHeight: '17px',
     borderRadius: 9,
     border: '1px solid var(--border-2)',
     background: open ? 'var(--surface-2)' : 'transparent',

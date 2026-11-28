@@ -275,7 +275,8 @@ export function MilestoneFiltersEmpty({ onClear }: { onClear: () => void }) {
       className="flex flex-col items-center text-center"
       style={{ gap: 12, padding: '48px 24px' }}
     >
-      <span style={{ color: 'var(--muted)' }}>
+      {/* Flex, so the span is the 28px glyph and not a taller text line. */}
+      <span style={{ display: 'flex', color: 'var(--muted)' }}>
         <TaskGlyph src={ICON.funnel} size={28} />
       </span>
       <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
