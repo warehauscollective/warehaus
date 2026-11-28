@@ -11,6 +11,7 @@
 import type * as _lib_acceptPaths from "../_lib/acceptPaths.js";
 import type * as _lib_activityFeed from "../_lib/activityFeed.js";
 import type * as _lib_agentRun from "../_lib/agentRun.js";
+import type * as _lib_attentionFeed from "../_lib/attentionFeed.js";
 import type * as _lib_billingEvent from "../_lib/billingEvent.js";
 import type * as _lib_closeout from "../_lib/closeout.js";
 import type * as _lib_closeoutStore from "../_lib/closeoutStore.js";
@@ -72,6 +73,7 @@ import type * as _lib_wrappers from "../_lib/wrappers.js";
 import type * as _lib_writeAuthz from "../_lib/writeAuthz.js";
 import type * as agent from "../agent.js";
 import type * as agentHttp from "../agentHttp.js";
+import type * as attention from "../attention.js";
 import type * as auth from "../auth.js";
 import type * as billing from "../billing.js";
 import type * as billing_stripe from "../billing/stripe.js";
@@ -143,6 +145,7 @@ declare const fullApi: ApiFromModules<{
   "_lib/acceptPaths": typeof _lib_acceptPaths;
   "_lib/activityFeed": typeof _lib_activityFeed;
   "_lib/agentRun": typeof _lib_agentRun;
+  "_lib/attentionFeed": typeof _lib_attentionFeed;
   "_lib/billingEvent": typeof _lib_billingEvent;
   "_lib/closeout": typeof _lib_closeout;
   "_lib/closeoutStore": typeof _lib_closeoutStore;
@@ -204,6 +207,7 @@ declare const fullApi: ApiFromModules<{
   "_lib/writeAuthz": typeof _lib_writeAuthz;
   agent: typeof agent;
   agentHttp: typeof agentHttp;
+  attention: typeof attention;
   auth: typeof auth;
   billing: typeof billing;
   "billing/stripe": typeof billing_stripe;
