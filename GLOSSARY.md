@@ -55,7 +55,7 @@ Peter's move of a milestone to Shipped in the Portal, after a confirm step. For 
 _Avoid_: Ship and deploy (the one-press button from ADR-0007, replaced), release, ship it
 
 **Merge run**:
-One run of the GitHub workflow that Ship starts: merge `main` into the milestone branch, check the merged code, then squash-merge. The milestone shows Shipped only when it succeeds. A failed merge run adds a task and sends the milestone back to Building.
+One run of the GitHub workflow that Ship starts: merge `main` into the milestone branch, check the merged code, then squash-merge. While it runs the milestone stays Ready to Ship and reads Merging. The milestone shows Shipped only when it succeeds. A merge run that fails on a conflict or a check adds a task and sends the milestone back to Building. One that fails for another reason (the workflow did not start, no report came back) leaves it at Ready to Ship with an Ask on Peter and Retry.
 _Avoid_: ship run, release pipeline
 
 **Deploy to main**:
