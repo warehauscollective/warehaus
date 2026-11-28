@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { MILESTONE_STATUSES } from '@convex/_lib/milestoneStatus';
+import { groupMilestones } from '@convex/_lib/milestoneTasks';
+import { FIXTURE_TASKS } from './fixtures';
+import { applyFixtureMilestonePreview, fixtureMilestones } from './milestoneRoadmap';
 import {
   MILESTONE_APPROVAL_FILTER_LABEL,
   MILESTONE_FILTER_LABEL,
@@ -11,6 +14,7 @@ import {
   emptyMilestoneListView,
   filterMilestones,
   milestoneFilterKeys,
+  milestoneFilterResult,
   milestoneFilterSummary,
   milestoneFilterValueChips,
   milestoneListViewIsFiltered,
@@ -290,5 +294,114 @@ describe('milestoneFilterValueChips', () => {
     assert.deepEqual(byId('type:both').remove(set), { ...set, types: [] });
     assert.deepEqual(byId('approval:unreviewed').remove(set), { ...set, approval: [] });
     assert.deepEqual(byId('needsYou').remove(set), { ...set, needsYou: false });
+  });
+});
+
+describe('milestoneFilterResult on the project page fixtures', () => {
+  const site = { id: 'p-site', name: 'Northwind site', publishToWarehaus: true, internal: false };
+  const load = (audience: 'staff' | 'client') =>
+    applyFixtureMilestonePreview(fixtureMilestones(site, FIXTURE_TASKS, audience), '?tiles=states');
+  const staffList = load('staff');
+  const clientList = load('client');
+  /** The tiles the page draws: list groups and board columns come from the same groups. */
+  const drawn = <T extends MilestoneFilterRow>(matches: T[], staff: boolean) =>
+    groupMilestones(matches, staff).flatMap((group) => group.milestones);
+
+  it('has fixtures with more than one status and type, for staff and a client', () => {
+    for (const list of [staffList, clientList]) {
+      assert.ok(new Set(list.map((milestone) => milestone.status)).size > 1);
+      assert.ok(list.some((milestone) => milestone.workType === 'design'));
+      assert.ok(list.some((milestone) => milestone.workType !== 'design'));
+    }
+  });
+
+  it('returns the whole list, unfiltered, for the empty view', () => {
+    const result = milestoneFilterResult(staffList, view(), true);
+    assert.deepEqual(result.matches, staffList);
+    assert.equal(result.filtered, false);
+    assert.equal(result.noMatches, false);
+    assert.equal(result.onlyShipped, false);
+  });
+
+  it('shows only Building tiles for Status Building, in the list and the board', () => {
+    for (const [list, staff] of [[staffList, true], [clientList, false]] as const) {
+      const result = milestoneFilterResult(list, view({ statuses: ['Building'] }), staff);
+      const tiles = drawn(result.matches, staff);
+      assert.ok(tiles.length > 0 && tiles.length < list.length);
+      assert.ok(tiles.every((milestone) => milestone.status === 'Building'));
+      assert.equal(tiles.length, list.filter((milestone) => milestone.status === 'Building').length);
+      // No Done group or column when nothing Shipped matches.
+      assert.ok(!groupMilestones(result.matches, staff).some((group) => group.id === 'shipped'));
+    }
+  });
+
+  it('shows only design-only milestones for Type Design', () => {
+    for (const [list, staff] of [[staffList, true], [clientList, false]] as const) {
+      const result = milestoneFilterResult(list, view({ types: ['design'] }), staff);
+      assert.ok(result.matches.length > 0 && result.matches.length < list.length);
+      assert.ok(result.matches.every((milestone) => milestone.workType === 'design'));
+    }
+  });
+
+  it('restores the full list when the filters are cleared', () => {
+    const picked = milestoneFilterResult(staffList, view({ statuses: ['Building'], types: ['design'] }), true);
+    assert.ok(picked.matches.length < staffList.length);
+    assert.deepEqual(milestoneFilterResult(staffList, emptyMilestoneListView(), true).matches, staffList);
+  });
+
+  it('gives staff and a client their own filter sets', () => {
+    const staff = milestoneFilterResult(staffList, view(), true);
+    const client = milestoneFilterResult(clientList, view(), false);
+    assert.deepEqual(milestoneFilterKeys(true, staff.options).slice(0, 3), ['status', 'type', 'approval']);
+    assert.deepEqual(milestoneFilterKeys(false, client.options), ['status', 'type']);
+    assert.deepEqual(client.options.approval, []);
+    assert.equal(client.options.needsYou, false);
+    // A client is only offered statuses in their own list.
+    assert.ok(client.options.statuses.every((status) => clientList.some((milestone) => milestone.status === status)));
+  });
+
+  it('offers Needs you when the page marks an open Ask on the viewer', () => {
+    const rows = staffList.map((milestone, index) => ({ ...milestone, needsYou: index === 0 }));
+    const result = milestoneFilterResult(rows, view({ needsYou: true }), true);
+    assert.equal(result.options.needsYou, true);
+    assert.deepEqual(result.matches.map((milestone) => milestone.id), [staffList[0].id]);
+  });
+
+  it('reports no matches when the filters are set and nothing fits both', () => {
+    const shippedType = staffList.find((milestone) => milestone.status === 'Shipped')?.workType;
+    const other = (['design', 'build', 'both'] as const).find(
+      (type) => type !== shippedType && staffList.some((milestone) => milestone.workType === type && milestone.status !== 'Shipped'),
+    );
+    assert.ok(other);
+    const shipped = staffList.filter((milestone) => milestone.status === 'Shipped');
+    assert.ok(shipped.every((milestone) => milestone.workType !== other));
+    const result = milestoneFilterResult(staffList, view({ statuses: ['Shipped'], types: [other] }), true);
+    assert.equal(result.filtered, true);
+    assert.deepEqual(result.matches, []);
+    assert.equal(result.noMatches, true);
+    assert.equal(result.onlyShipped, false);
+  });
+
+  it('opens Done only when it is the only group with a match', () => {
+    assert.equal(milestoneFilterResult(staffList, view({ statuses: ['Shipped'] }), true).onlyShipped, true);
+    assert.equal(milestoneFilterResult(staffList, view({ statuses: ['Building', 'Shipped'] }), true).onlyShipped, false);
+    // Every milestone Shipped and no filter set: the group stays as the viewer left it.
+    const allShipped = staffList.filter((milestone) => milestone.status === 'Shipped');
+    assert.equal(milestoneFilterResult(allShipped, view(), true).onlyShipped, false);
+  });
+
+  it('keeps the held view and shows the pruned one', () => {
+    const held = view({ statuses: ['Parked', 'Building'] });
+    assert.ok(!staffList.some((milestone) => milestone.status === 'Parked'));
+    const result = milestoneFilterResult(staffList, held, true);
+    assert.deepEqual(result.shown.statuses, ['Building']);
+    assert.deepEqual(held.statuses, ['Parked', 'Building']);
+  });
+
+  it('leaves a hidden milestone on the full list, so a link to it still opens', () => {
+    const result = milestoneFilterResult(staffList, view({ statuses: ['Building'] }), true);
+    const hidden = staffList.find((milestone) => milestone.status !== 'Building');
+    assert.ok(hidden && !result.matches.some((milestone) => milestone.id === hidden.id));
+    assert.equal(staffList.find((milestone) => milestone.id === hidden.id), hidden);
   });
 });

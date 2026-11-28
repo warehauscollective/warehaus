@@ -12,7 +12,17 @@ import {
 } from '@/lib/data/milestoneFilters';
 
 Object.assign(globalThis, { React });
-const { MilestoneFilterBar } = await import('./MilestoneFilterBar');
+const { MilestoneFilterBar, MilestoneFiltersEmpty } = await import('./MilestoneFilterBar');
+
+describe('MilestoneFiltersEmpty', () => {
+  it('draws the no-match line and Clear filters, as designed', () => {
+    const html = renderToStaticMarkup(createElement(MilestoneFiltersEmpty, { onClear: () => {} }));
+    assert.match(html, /data-testid="milestone-filters-empty"/);
+    assert.match(html, />No milestones match these filters\.</);
+    assert.match(html, /data-testid="milestone-filters-empty-clear"[^>]*>Clear filters</);
+    assert.match(html, /filter-funnel\.svg/);
+  });
+});
 
 /** What staff load: four statuses, three types, three approvals, one open Ask on the viewer. */
 const STAFF: MilestoneFilterRow[] = [

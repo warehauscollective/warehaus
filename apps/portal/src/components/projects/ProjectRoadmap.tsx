@@ -59,6 +59,9 @@ import {
 import { type RoadmapProject, type MilestoneActivityItem, type ResourceChoice, type FixturePatch, nextDueLabel, projectStatusLabel } from './milestoneTile';
 import { ProjectResources, ActivityList } from './roadmapParts';
 import { MilestoneListCard } from './MilestoneListCard';
+import { MilestoneFilterBar, MilestoneFiltersEmpty, type MilestoneListViewChange } from './MilestoneFilterBar';
+import { approvalNeedsYou } from './milestoneDetailsEdit';
+import { emptyMilestoneListView, milestoneFilterResult, type MilestoneListView } from '@/lib/data/milestoneFilters';
 import { CreateMilestone } from './MilestoneForms';
 import { MilestoneDetail } from './MilestoneDetailView';
 import { RunnerHealth } from './RunnerStatus';
@@ -197,6 +200,8 @@ export function ProjectRoadmap({
   const [milestoneLayout, setMilestoneLayout] = useState<'list' | 'board'>(
     searchParams.get('layout') === 'board' ? 'board' : 'list',
   );
+  // The milestone filters. Held here for the visit: not saved, not in the URL.
+  const [milestoneView, setMilestoneView] = useState<MilestoneListView>(emptyMilestoneListView);
   const phone = useMaxWidth(767);
   const projectContext = useProjectContext({ projectId: project.id, staff, fixtures, live, hostSlug });
   const rememberedMilestones = useRef<MilestoneRoadmapView[]>([]);
@@ -306,7 +311,24 @@ export function ProjectRoadmap({
   const attachedIds = attachedMilestoneTaskIds([...milestones, ...archivedMilestones]);
   const needingMilestone = tasksNeedingMilestone(tasks, projectMilestoneIds, attachedIds);
   const needCount = hideNeedBanner ? 0 : needingMilestone.length;
-  const milestoneGroups = groupMilestones(milestones, staff);
+  // Needs you is an open Ask on the viewer. The approval Ask is the one the loaded list can show.
+  const askEmail = viewerEmail ?? auth.authUser?.email ?? null;
+  const filterRows = staff
+    ? milestones.map((milestone) => ({
+        ...milestone,
+        needsYou: approvalNeedsYou({ milestone, viewerEmail: askEmail }) != null,
+      }))
+    : milestones;
+  const filters = milestoneFilterResult<MilestoneRoadmapView>(filterRows, milestoneView, staff);
+  const changeMilestoneView: MilestoneListViewChange = (update) => {
+    const next = update(milestoneView);
+    setMilestoneView(next);
+    // Results only in Done would sit behind its collapsed row.
+    if (milestoneFilterResult(filterRows, next, staff).onlyShipped) setDoneExpanded(true);
+  };
+  const clearMilestoneView = () => setMilestoneView(emptyMilestoneListView());
+  // Only the groups, their counts and the board read the matches. The rest of the page reads `milestones`.
+  const milestoneGroups = groupMilestones(filters.matches, staff);
   const openGroups = milestoneGroups.filter((group) => group.id !== 'shipped');
   const shippedGroup = milestoneGroups.find((group) => group.id === 'shipped');
   const boardLayout = milestoneLayout === 'board';
@@ -314,6 +336,12 @@ export function ProjectRoadmap({
   const projectActivity = activity.filter((item) => item.projectId === project.id);
   const loading = !fixtures && (live ? query.loading : true) && milestones.length === 0;
   const failed = !fixtures && live && query.error != null;
+  const archivedChip =
+    staff && archivedCount > 0 ? (
+      <ArchivedChip active={archivedView} count={archivedCount} onClick={() => setShowArchived((shown) => !shown)} />
+    ) : null;
+  // No bar while loading, on a load error with no list, with no milestones, or in the Archived view.
+  const showFilterBar = !loading && milestones.length > 0 && !archivedView;
 
   const patchMilestone = (id: string, patch: FixturePatch) => {
     setPatches((current) => {
@@ -651,9 +679,19 @@ export function ProjectRoadmap({
                 />
               ) : null}
 
-              {staff && archivedCount > 0 ? (
-                <ArchivedChip active={archivedView} count={archivedCount} onClick={() => setShowArchived((shown) => !shown)} />
-              ) : null}
+              {showFilterBar ? (
+                <MilestoneFilterBar
+                  view={filters.shown}
+                  options={filters.options}
+                  staff={staff}
+                  onChange={changeMilestoneView}
+                  onClear={clearMilestoneView}
+                >
+                  {archivedChip}
+                </MilestoneFilterBar>
+              ) : (
+                archivedChip
+              )}
 
               {archivedView ? (
                 <section data-testid="archived-view" className="flex flex-col gap-4">
@@ -682,6 +720,8 @@ export function ProjectRoadmap({
                     </ul>
                   ) : null}
                 </section>
+              ) : filters.noMatches ? (
+                <MilestoneFiltersEmpty onClear={clearMilestoneView} />
               ) : boardLayout ? (
                 <div
                   data-testid="milestone-board"

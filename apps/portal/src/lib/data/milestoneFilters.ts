@@ -1,6 +1,7 @@
 import type { MilestoneWorkType } from '@convex/_lib/designGate';
 import { MILESTONE_APPROVALS, type MilestoneApproval, type MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { MILESTONE_STATUSES, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
+import { groupMilestones } from '@convex/_lib/milestoneTasks';
 
 /**
  * Filters for the milestone list on the project page
@@ -162,6 +163,53 @@ export function filterMilestones<T extends MilestoneFilterRow>(
 ): T[] {
   const pruned = pruneMilestoneListView(view, milestoneListViewOptions(milestones, staff));
   return milestones.filter((milestone) => milestoneMatchesFilters(milestone, pruned, staff));
+}
+
+export type MilestoneFilterResult<T> = {
+  /** The menu choices this list has. */
+  options: MilestoneListViewOptions;
+  /** The view as shown: stale picks dropped. Draw the bar from this, keep the held view as it is. */
+  shown: MilestoneListView;
+  /** Whether any filter is set, after pruning. */
+  filtered: boolean;
+  /** The milestones to group and draw, in the order given. */
+  matches: T[];
+  /** A filter is set and nothing matches: draw the no-match state instead of the groups. */
+  noMatches: boolean;
+  /**
+   * A filter is set and every match is in the Done group. The page opens that
+   * group, since a collapsed row would be the whole result. With a match in
+   * another group it stays as the viewer left it.
+   */
+  onlyShipped: boolean;
+};
+
+/**
+ * Everything the project page needs from one view: the choices, the view to
+ * show, and the matches. The page passes `matches` to `groupMilestones()` and
+ * keeps its other reads (the approved count, the open milestone) on the full
+ * list.
+ */
+export function milestoneFilterResult<T extends MilestoneFilterRow>(
+  milestones: readonly T[],
+  view: MilestoneListView,
+  staff: boolean,
+): MilestoneFilterResult<T> {
+  const options = milestoneListViewOptions(milestones, staff);
+  const shown = pruneMilestoneListView(view, options);
+  const filtered = milestoneListViewIsFiltered(shown, staff);
+  const matches = filtered
+    ? milestones.filter((milestone) => milestoneMatchesFilters(milestone, shown, staff))
+    : [...milestones];
+  const groups = groupMilestones(matches, staff);
+  return {
+    options,
+    shown,
+    filtered,
+    matches,
+    noMatches: filtered && matches.length === 0,
+    onlyShipped: filtered && groups.length === 1 && groups[0].id === 'shipped',
+  };
 }
 
 /** How many filters are set. Filters, not values. Staff-only filters do not count for a client. */

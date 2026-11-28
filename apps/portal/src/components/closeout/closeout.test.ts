@@ -316,7 +316,7 @@ describe('close-out wiring', () => {
     assert.match(roadmap, /closeout=\{staff \? closeoutControl\(milestone\) : null\}/);
     assert.match(roadmap, /closeout=\{staff \? closeoutControl\(selected\) : null\}/);
     assert.match(roadmap, /live && staff \? \{ projectId, hostSlug \} : 'skip'/);
-    assert.match(roadmap, /\{staff && archivedCount > 0 \? \(/);
+    assert.match(roadmap, /staff && archivedCount > 0 \? \(\s*<ArchivedChip/);
     const detail = source('../projects/MilestoneDetailView.tsx');
     assert.match(detail, /action=\{staff && closeout \?/);
     const dialog = source('../tasks/TaskDetailModal.tsx');

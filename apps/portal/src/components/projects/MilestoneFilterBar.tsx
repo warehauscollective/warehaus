@@ -2,8 +2,11 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { OutlineButton } from '@/components/ui/primitives';
 import {
   MILESTONE_APPROVAL_FILTER_LABEL,
+  MILESTONE_FILTERS_CLEAR,
+  MILESTONE_FILTERS_EMPTY_TITLE,
   MILESTONE_FILTER_LABEL,
   MILESTONE_NEEDS_YOU_LABEL,
   MILESTONE_STATUS_FILTER_LABEL,
@@ -257,5 +260,30 @@ function MilestoneFilterPanel({
         </FilterSection>
       ))}
     </FilterMenuFrame>
+  );
+}
+
+/**
+ * Shown in place of the milestone groups when the filters match nothing
+ * (`Organism/Milestones` `State=filtered-empty`, Figma 1343:25633): the funnel,
+ * one line, and Clear filters.
+ */
+export function MilestoneFiltersEmpty({ onClear }: { onClear: () => void }) {
+  return (
+    <div
+      data-testid="milestone-filters-empty"
+      className="flex flex-col items-center text-center"
+      style={{ gap: 12, padding: '48px 24px' }}
+    >
+      <span style={{ color: 'var(--muted)' }}>
+        <TaskGlyph src={ICON.funnel} size={28} />
+      </span>
+      <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
+        {MILESTONE_FILTERS_EMPTY_TITLE}
+      </p>
+      <OutlineButton onClick={onClear} nowrap testId="milestone-filters-empty-clear">
+        {MILESTONE_FILTERS_CLEAR}
+      </OutlineButton>
+    </div>
   );
 }
