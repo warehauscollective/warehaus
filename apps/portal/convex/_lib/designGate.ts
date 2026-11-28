@@ -57,6 +57,20 @@ export function isVisualMilestone(rows: readonly GateRow[]): boolean {
   return counted(rows).some((task) => taskKind(task) === 'design');
 }
 
+/** A milestone's type on the project page: design tasks only, build tasks only, or both. */
+export type MilestoneWorkType = 'design' | 'build' | 'both';
+
+/**
+ * The type from the counted tasks, by the gate's own rule: top level, not
+ * archived, not Parked, and a task with no kind is build. Null when no task
+ * counts, so a milestone with no work yet has no type.
+ */
+export function milestoneWorkType(rows: readonly GateRow[]): MilestoneWorkType | null {
+  const kinds = new Set(counted(rows).map(taskKind));
+  if (kinds.size === 0) return null;
+  return kinds.size === 2 ? 'both' : kinds.has('design') ? 'design' : 'build';
+}
+
 export type DesignGate = {
   visual: boolean;
   approved: boolean;

@@ -7,7 +7,7 @@ import {
 } from '@convex/_lib/milestones';
 import { roadmapCounts } from '@convex/_lib/milestoneTaskSet';
 import type { PortalTask } from '@/lib/data/view-models';
-import { designGate } from '@convex/_lib/designGate';
+import { designGate, milestoneWorkType } from '@convex/_lib/designGate';
 
 /**
  * A milestone with new rows, its counts worked out by the same rule the
@@ -90,6 +90,7 @@ export function fixtureMilestones(
       objective: 'The homepage matches the approved frame and is ready to review.',
       goals: ['Hero matches the approved frame', 'Menu page stays one column'],
       status: 'Ready to Ship',
+      workType: 'both',
       approval: 'unreviewed',
       note: null,
       approverName: null,
@@ -120,6 +121,7 @@ export function fixtureMilestones(
       objective: 'Invoices export without a second approval step.',
       goals: ['Export uses the published columns'],
       status: 'Planning',
+      workType: 'build',
       approval: 'unreviewed',
       note: null,
       approverName: null,
@@ -230,6 +232,8 @@ function withLoopFixture(milestone: MilestoneRoadmapView, loop: string): Milesto
     name: 'Client experience launch',
     status: building ? 'Building' : 'Planning',
     planning: loop === 'generating' ? 'running' : loop === 'failed' ? 'blocked' : undefined,
+    // The planner's tasks carry no kind, so they are build. No tasks, no type.
+    workType: milestoneWorkType(rows) ?? undefined,
     ...(loop === 'failed' ? { planningBlockedReason: 'Couldn’t draft tasks' } : {}),
     branch: 'milestone/client-experience-launch',
     prUrl: 'https://github.com/warehauscollective/warehaus/pull/152',
@@ -268,23 +272,22 @@ function withDesignGateFixture(milestone: MilestoneRoadmapView, phase: string): 
       ...(design ? { kind: 'design' as const } : {}),
     };
   });
-  const gate = designGate(
-    rows.map((row) => ({ kind: row.kind ?? null, status: row.status, isDone: row.isDone, stage: null })),
-    approvedAt,
-  );
+  const gateRows = rows.map((row) => ({ kind: row.kind ?? null, status: row.status, isDone: row.isDone, stage: null }));
+  const gate = designGate(gateRows, approvedAt);
   return {
     ...withRows(milestone, rows),
     name: 'Design gate and task kinds',
     status: 'Building',
     ...(approvedAt != null ? { designApprovedAt: approvedAt } : { designApprovedAt: undefined }),
     designGate: { visual: gate.visual, buildLocked: gate.buildLocked, phase: gate.phase },
+    workType: milestoneWorkType(gateRows) ?? undefined,
     branch: 'milestone/design-gate-and-task-kinds',
   };
 }
 
 function previewMilestone(
   patch: Pick<MilestoneRoadmapView, 'id' | 'name' | 'objective' | 'status' | 'approval'> &
-    Partial<Pick<MilestoneRoadmapView, 'decidedAt' | 'resources' | 'note' | 'approverName' | 'buildRun' | 'rows'>>,
+    Partial<Pick<MilestoneRoadmapView, 'decidedAt' | 'resources' | 'note' | 'approverName' | 'buildRun' | 'rows' | 'workType'>>,
 ): MilestoneRoadmapView {
   return {
     goals: [],
@@ -297,6 +300,8 @@ function previewMilestone(
     doneCount: 0,
     countIsDecision: false,
     rows: [],
+    // A build milestone unless the preview says otherwise.
+    workType: 'build',
     ...patch,
   };
 }
@@ -350,6 +355,7 @@ export function applyFixtureMilestonePreview(
       previewMilestone({
         id: 'm-preview-shipped',
         name: 'Design system foundation',
+        workType: 'design',
         objective: 'Core components, tokens and responsive layouts.',
         status: 'Shipped',
         approval: 'approved',
@@ -380,6 +386,7 @@ export function applyFixtureMilestonePreview(
     previewMilestone({
       id: 'm-preview-active',
       name: 'Case study',
+      workType: 'design',
       objective: 'The case study is in progress.',
       status: 'Building',
       approval: 'unreviewed',
@@ -387,6 +394,7 @@ export function applyFixtureMilestonePreview(
     previewMilestone({
       id: 'm-preview-reviewed',
       name: 'Navigation pass',
+      workType: 'both',
       objective: 'The navigation notes were reviewed.',
       status: 'Building',
       approval: 'changes_requested',
@@ -396,6 +404,7 @@ export function applyFixtureMilestonePreview(
     previewMilestone({
       id: 'm-preview-approved',
       name: 'Approved, awaiting merge',
+      workType: 'both',
       objective: 'The brand system is approved.',
       // Approval keeps Ready to Ship. Shipped comes with the deploy, or with Mark complete.
       status: 'Ready to Ship',
