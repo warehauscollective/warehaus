@@ -10,7 +10,7 @@ import { v } from 'convex/values';
 import { internalMutation } from '../_generated/server';
 import type { Doc, Id } from '../_generated/dataModel';
 import { memoryCtx, type MemoryCtx } from './memoryCtx.testkit';
-import { seedContact, seedOrg, seedProject, seedTask } from './seedRows.testkit';
+import { seedContact, seedMilestoneWorld, seedOrg, seedProject, seedTask } from './seedRows.testkit';
 import {
   CHOOSE_ASSIGNEE,
   EARLIER_WRITE_FAILED,
@@ -188,6 +188,66 @@ describe('task change: portal-owned and archived tasks', () => {
       assert.deepEqual(refused, { ok: false, code: 'refused', error: PORTAL_TASK_STATUS });
       assert.equal(snapshot(w.t), before);
     });
+  });
+});
+
+describe('task change: a hand status move releases the runner', () => {
+  /** A Portal-only task the runner blocked, with its blocked Ask and one on another task. */
+  function blockedWorld(fields: Record<string, unknown> = {}) {
+    const t = memoryCtx();
+    const w = seedMilestoneWorld(t);
+    const held = {
+      notionPageId: 'portal-milestone:m1:1',
+      source: 'portal-milestone',
+      status: 'Blocked',
+      claimedBy: 'runner-1',
+      claimedAt: 5,
+      blockedReason: 'The push to origin failed',
+      ...fields,
+    };
+    const taskId = w.task(held);
+    const otherId = w.task({ ...held, notionPageId: 'portal-milestone:m1:2' });
+    const ask = (id: string, reason = 'blocked') =>
+      t.seed('milestoneNotes', { orgId: w.orgId, milestoneId: w.milestoneId, body: 'Blocked', addedBy: 'runner:runner-1', createdAt: 1, open: true, reason, taskId: id });
+    const askId = ask(taskId);
+    const otherAskId = ask(otherId);
+    const run = (status: string, actor: TaskChangeOptions['actor'] = 'api') =>
+      t.call<TaskChangeResult>(change, { taskId, changes: [{ field: 'status', status }], options: { actor, actorId: 'token:claude', at: AT } });
+    const open = (id: string) => (t.row(id) as Doc<'milestoneNotes'>).open === true;
+    return { t, run, task: () => t.row(taskId) as Doc<'tasks'>, other: () => t.row(otherId) as Doc<'tasks'>, open, askId, otherAskId };
+  }
+  const held = (task: Doc<'tasks'>) => [task.claimedBy ?? null, task.claimedAt ?? null, task.blockedReason ?? null];
+
+  it('out of Blocked clears the claim and reason and closes that task\'s blocked Ask only', async () => {
+    for (const actor of ['staff', 'api'] as const) {
+      const w = blockedWorld();
+      assert.equal((await w.run('To Do', actor)).ok, true, actor);
+      assert.deepEqual([w.task().status, ...held(w.task())], ['To Do', null, null, null], actor);
+      assert.equal(w.open(w.askId), false, actor);
+      assert.equal(w.open(w.otherAskId), true, actor);
+      assert.deepEqual(held(w.other()), ['runner-1', 5, 'The push to origin failed'], actor);
+    }
+  });
+
+  it('Done by hand clears the claim and closes the blocked Ask', async () => {
+    for (const from of ['Blocked', 'In Progress']) {
+      const w = blockedWorld({ status: from });
+      assert.equal((await w.run('Done')).ok, true, from);
+      assert.deepEqual([w.task().isDone, ...held(w.task())], [true, null, null, null], from);
+      assert.equal(w.open(w.askId), false, from);
+    }
+  });
+
+  it('a move that neither leaves Blocked nor finishes the task keeps the claim and the Ask', async () => {
+    const live = blockedWorld({ status: 'In Progress', blockedReason: undefined });
+    assert.equal((await live.run('To Do')).ok, true);
+    assert.deepEqual(held(live.task()), ['runner-1', 5, null]);
+    assert.equal(live.open(live.askId), true);
+
+    const into = blockedWorld({ status: 'To Do' });
+    assert.equal((await into.run('Blocked')).ok, true);
+    assert.deepEqual(held(into.task()), ['runner-1', 5, 'The push to origin failed']);
+    assert.equal(into.open(into.askId), true);
   });
 });
 
