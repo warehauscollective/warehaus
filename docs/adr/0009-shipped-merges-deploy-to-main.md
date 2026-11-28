@@ -81,3 +81,44 @@ Facts checked on 2026-11-27:
 - "Approval gates Shipped" (decisions 0017 and 0022) is covered by decision 8 and folded into milestone 2. Its Ask for an unapproved merge is replaced by decision 11: a merge on GitHub ships.
 - Three standing rules change when their milestone ships, not before: Peter approves from the Vercel preview (milestone 1); only Peter sets Shipped on a milestone with a pull request (milestone 2); "deploy main" in chat is retired (milestone 3). Until then `AGENTS.md`, `CLAUDE.md` and the Cursor rule keep today's rules.
 - The preview workflow gains write access to shared dev Convex. It still never targets production.
+
+## Amendment, 2026-11-28: how Shipped merges is built
+
+Settled with Peter in a grilling session in Claude Code on 2026-11-28: "Yes to all" to Q1 to Q8 and Q9 to Q15, then "Yes, record it" to Q16, Q17 and the summary. It adds to decisions 7 to 13 and changes none of them. It replaces the merge token in decision 24 and the order in decision 28, as noted. Tracked in the Portal milestone "Shipped merges the pull request".
+
+Why now: on 2026-11-27 Peter moved "Preview link on the tile" and "Mac app: Portal window" to Shipped in the Portal while their pull requests were still open, so the Deploy to main counter did not count them. Both were merged by hand on his word on 2026-11-28 (pull requests 228 and 219).
+
+Facts checked on 2026-11-28:
+
+- The Shipped gate still checks only that tasks are Done. Any staff member or the staff API can set Shipped with the pull request open.
+- The token set for Deploy to main (`DEPLOY_GITHUB_TOKEN`, Actions read and write) can start any workflow in the repository.
+- `main` has no branch protection or ruleset, so a workflow's own GitHub token can merge.
+- The Portal links a pull request to a milestone by branch name only. A pull request opened outside the runner on another branch name is never linked (pull request 229).
+
+Decisions:
+
+A1. **It does not wait for Clear next step at Ready to Ship.** Ship is the Shipped option of the status control plus the confirm step. The next-step slot shows Ship when that milestone lands. Replaces the order in decision 28.
+
+A2. **No new secret.** The Portal starts the merge workflow with `DEPLOY_GITHUB_TOKEN`, and the workflow reports with `DEPLOY_REPORT_SECRET`. Peter has no setup step. Replaces the merge token in decision 24. The workflow has two jobs: the job that checks out and runs branch code receives no secret; a separate job that never checks out the branch reports to the Portal. The merge itself uses the workflow's own GitHub token.
+
+A3. **The checks that gate the merge are Portal CI's: type check, lint and tests, on the branch merged with `main`.** The merge does not wait for Chromatic or UI Tests.
+
+A4. **While the merge runs the milestone stays Ready to Ship, reads "Merging…", and its status is locked.**
+
+A5. **A failure that is not the branch's fault stays at Ready to Ship.** When the workflow does not start, GitHub is down or the report is lost, the Portal opens an Ask on Peter with Retry, as a failed deploy does. Only a conflict or a failed check adds the task and moves the milestone to Building (decision 10).
+
+A6. **Other staff see the Shipped option disabled with "Only Peter can ship"** on a milestone with an open pull request. The staff API and bots are refused with the same words. A milestone with no pull request keeps the plain move for all staff (decision 12).
+
+A7. **A pull request whose title ends "(Portal milestone: <name>)" links to that milestone when no branch matches.** Work built outside the runner can then be shipped from the Portal and counted for deploy.
+
+A8. **Design is three states on existing components, with no new screen:** the confirm step (milestone name, pull request link, "This merges into main. It does not deploy. It cannot be undone."), Merging, and a failed merge with its reason and the workflow log link. 1440 and 390 Dark, Light as instances, approved by Peter before build.
+
+A9. **The runner builds it from the milestone's tasks.** An agent outside the runner reviews the merge workflow file and the secrets split before Peter ships the milestone.
+
+A10. **The first real merge is a throwaway docs-only milestone** (the Runner trial pull request, 156), before Ship is used on real work.
+
+A11. **The standing rules change only after the first successful merge from the Portal.** Until then a milestone pull request merges on Peter's word in chat or the Portal. The rule then reads: "Peter moving a milestone to Shipped in the Portal is the only way a milestone pull request merges. Agents never merge one, even when asked. A pull request that belongs to no milestone still merges on Peter's word in chat."
+
+A12. **There is a fallback, unlike Deploy to main.** If the Portal merge is broken, Peter can lift the rule in chat for one named pull request. The agent then merges it by hand after running the same checks on the branch merged with `main`.
+
+A13. **Milestones already Shipped with an open pull request get a one-time cleanup, not a screen.** After this ships that state cannot be created again.
