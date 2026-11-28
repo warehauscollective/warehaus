@@ -277,7 +277,7 @@ function withDesignGateFixture(milestone: MilestoneRoadmapView, phase: string): 
     name: 'Design gate and task kinds',
     status: 'Building',
     ...(approvedAt != null ? { designApprovedAt: approvedAt } : { designApprovedAt: undefined }),
-    designGate: { visual: gate.visual, buildLocked: gate.buildLocked, phase: gate.phase },
+    designGate: { visual: gate.visual, buildLocked: gate.buildLocked, phase: gate.phase, doneDesign: gate.doneDesign },
     branch: 'milestone/design-gate-and-task-kinds',
   };
 }

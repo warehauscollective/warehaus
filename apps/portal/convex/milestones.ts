@@ -395,7 +395,7 @@ function roadmapDesignGate(inputs: readonly RoadmapTaskInput[], milestone: Doc<'
     inputs.filter((task) => task.milestoneId === milestone._id),
     milestone.designApprovedAt,
   );
-  return { visual: gate.visual, buildLocked: gate.buildLocked, phase: gate.phase };
+  return { visual: gate.visual, buildLocked: gate.buildLocked, phase: gate.phase, doneDesign: gate.doneDesign };
 }
 
 async function toRoadmap(
@@ -1449,8 +1449,9 @@ export const approve = adminMutation({
 });
 
 /**
- * Approve designs on the tile. Peter only, before build. Saves who and when,
- * and writes one staff-only Activity row. Status does not change and nothing
+ * Approve designs on the tile. Peter only, before build, on a visual
+ * milestone with a design task done. Saves who and when, and writes one
+ * staff-only Activity row. Status does not change and nothing
  * merges or deploys. A second press keeps the first approval and writes nothing.
  */
 export const approveDesign = adminMutation({
@@ -1459,11 +1460,16 @@ export const approveDesign = adminMutation({
     if (ctx.identity.role !== 'Warehaus Staff' || !isPeterEmail(ctx.identity.email)) fail(ONLY_PETER_DESIGNS);
     const contactId = ctx.identity.contactId as Id<'contacts'>;
     const milestone = await loadMilestone(ctx, args.milestoneId);
-    const decision = approveDesignDecision(milestone);
-    if (!decision.ok) fail(decision.reason);
-    if (decision.already) {
-      return { ok: true as const, designApprovedAt: milestone.designApprovedAt as number, already: true };
+    if (milestone.designApprovedAt) {
+      return { ok: true as const, designApprovedAt: milestone.designApprovedAt, already: true };
     }
+    const loaded = await loadMilestoneTaskSet(ctx, milestone);
+    if (!loaded.ok) fail(loaded.reason);
+    const decision = approveDesignDecision({
+      status: milestone.status,
+      gate: designGate(loaded.set.tasks, null),
+    });
+    if (!decision.ok) fail(decision.reason);
     const at = Date.now();
     await ctx.db.patch(milestone._id, { designApprovedAt: at, designApproverContactId: contactId });
     await logMilestone(ctx, milestone, 'milestone.design_approved', at, 'Designs approved by Peter');

@@ -16,6 +16,7 @@ The build protocol puts design first: on a milestone that changes what people se
 6. **Building shows a phase, derived, never stored.** Designs while a design task is open; Waiting on design approval once they are all done and not approved; then plain Build. It shows after Building on the tile, the details STATUS field and the status menu, to staff only.
 7. **Peter can request design changes instead of approving.** Request design changes sits beside Approve designs in the tile's Status box and is in the MCP (`request_design_changes`, `grok-bot` token only). It needs notes. It adds top-level design tasks (origin review, the current round) whose description names the design tasks they revise, closes the Ask, and keeps build locked. It is refused once the designs are approved.
 8. **Approve designs never moves Status, merges or deploys.** It records the approval and unlocks build.
+9. **Approve designs needs a design task that is done** (amendment of 2026-11-28, milestone Milestone Improvements). The button shows to Peter, from Idea to Building, only on a visual milestone with at least one design task done. A milestone with no design task has nothing to approve, and one whose design tasks are all still open has nothing to look at yet: neither shows the button, and the `approveDesign` mutation refuses both with a plain reason ("This milestone has no design tasks.", "No design task is done yet."). The tile reads this from `designGate.doneDesign`. Request design changes sits beside the button, so it follows the same rule on the tile.
 
 ## Consequences
 

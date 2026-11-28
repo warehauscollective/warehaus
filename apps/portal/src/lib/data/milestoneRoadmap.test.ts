@@ -839,6 +839,29 @@ describe('design gate on the tile', () => {
     assert.doesNotMatch(build, /tile-request-design-changes/);
   });
 
+  it('shows Peter Approve designs only once a design task is done', () => {
+    const waiting = gateTile('waiting');
+    assert.equal(waiting.designGate?.doneDesign, 2);
+    // No design task: the Status box stays the plain control.
+    const plain = renderTile({
+      staff: true,
+      isPeter: true,
+      milestone: { ...waiting, designGate: { visual: false, buildLocked: false, phase: 'build', doneDesign: 0 } },
+    });
+    assert.doesNotMatch(plain, /tile-approve-designs|tile-request-design-changes/);
+    // A design task is open and none is done.
+    const open = renderTile({
+      staff: true,
+      isPeter: true,
+      milestone: { ...waiting, designGate: { visual: true, buildLocked: true, phase: 'designs', doneDesign: 0 } },
+    });
+    assert.doesNotMatch(open, /tile-approve-designs|tile-request-design-changes/);
+    // A tile sent with no gate at all gets no button either.
+    const none = renderTile({ staff: true, isPeter: true, milestone: { ...waiting, designGate: undefined } });
+    assert.doesNotMatch(none, /tile-approve-designs/);
+    assert.match(renderTile({ staff: true, isPeter: true, milestone: waiting }), /data-testid="tile-approve-designs"/);
+  });
+
   it('never shows a client the phase', () => {
     const tile = { ...gateTile('designs') };
     const client = renderTile({ staff: false, milestone: tile });
