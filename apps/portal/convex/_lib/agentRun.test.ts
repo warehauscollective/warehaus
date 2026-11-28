@@ -450,20 +450,39 @@ describe('who can read agent tables', () => {
     assert.equal(agent.includes('clientMutation'), false);
   });
 
-  it('exposes five staff functions and keeps every other function internal', async () => {
+  it('exposes nine staff functions and keeps every other function internal', async () => {
     type Registered = { _handler?: unknown; isPublic?: boolean; isInternal?: boolean };
     const functions = Object.entries(agentModule as Record<string, unknown>).filter(
       ([, value]) => typeof (value as Registered | null)?._handler === 'function',
     ) as Array<[string, Registered]>;
     const publicNames = functions.filter(([, fn]) => fn.isPublic).map(([name]) => name).sort();
-    assert.deepEqual(publicNames, ['buildingProgress', 'feedForMilestone', 'regeneratePlan', 'retryBlocked', 'runnerHealth']);
+    assert.deepEqual(publicNames, [
+      'answerAndRerun',
+      'buildingProgress',
+      'feedForMilestone',
+      'regeneratePlan',
+      'rerunTask',
+      'retryBlocked',
+      'runnerHealth',
+      'stopRun',
+      'taskTroubleshoot',
+    ]);
     // Every other function is internal, so only the runner routes reach it.
     for (const [name, fn] of functions) assert.equal(fn.isPublic === true || fn.isInternal === true, true, name);
     const t = memoryCtx();
-    const { milestoneId, projectId } = building(t);
+    const { milestoneId, projectId, taskIds } = building(t);
+    const taskId = taskIds[0];
+    // The fixes for one task (Rerun, Answer and rerun, Stop run) and its Troubleshoot section take the task.
+    const argsFor: Record<string, Record<string, unknown>> = {
+      runnerHealth: { projectId },
+      rerunTask: { taskId },
+      stopRun: { taskId },
+      taskTroubleshoot: { taskId },
+      answerAndRerun: { taskId, answer: 'An answer' },
+    };
     for (const name of publicNames) {
       const fn = (agentModule as Record<string, unknown>)[name];
-      const args = name === 'runnerHealth' ? { projectId } : { milestoneId };
+      const args = argsFor[name] ?? { milestoneId };
       await assert.rejects(t.call(fn, args, { as: 'client' }), PortalAuthError, `${name} as client`);
       await assert.rejects(t.call(fn, args), PortalAuthError, `${name} signed out`);
     }

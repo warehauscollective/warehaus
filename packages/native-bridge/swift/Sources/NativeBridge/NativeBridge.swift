@@ -24,6 +24,13 @@ public enum AlertKind: String, Codable, Sendable {
     case readyToShip
 }
 
+/// Why a blocked Ask's task stopped: its Blocked cause.
+public enum AlertCause: String, Codable, Sendable {
+    case needsInput = "needs_input"
+    case failed
+    case stalled
+}
+
 public struct AttentionAlert: Codable, Equatable, Sendable {
     public let id: String
     public let kind: AlertKind
@@ -31,6 +38,8 @@ public struct AttentionAlert: Codable, Equatable, Sendable {
     /// A warehaus:// link. Hand it back to the page with `navigate`; never parse it here.
     public let url: String
     public let createdAt: Double
+    /// Only on an `ask` alert for a Blocked task that carries a cause.
+    public let cause: AlertCause?
 }
 
 /// Messages the shell sends to the page.
@@ -125,11 +134,21 @@ public enum BridgeDecoder {
                   let kindName = a["kind"] as? String, let kind = AlertKind(rawValue: kindName),
                   let url = a["url"] as? String, isPortalLink(url),
                   let createdAt = number(a["createdAt"])
-            else { return refuse("each alert needs an id, a known kind, a title, a warehaus:// url and createdAt") }
-            alerts.append(AttentionAlert(id: id, kind: kind, title: title, url: url, createdAt: createdAt))
+            else { return refuse(alertRefusal) }
+            var cause: AlertCause?
+            if let rawCause = a["cause"], !(rawCause is NSNull) {
+                guard kind == .ask, let name = rawCause as? String, let known = AlertCause(rawValue: name) else {
+                    return refuse(alertRefusal)
+                }
+                cause = known
+            }
+            alerts.append(AttentionAlert(id: id, kind: kind, title: title, url: url, createdAt: createdAt, cause: cause))
         }
         return .success(.attention(count: count, alerts: alerts))
     }
+
+    private static let alertRefusal =
+        "each alert needs an id, a known kind, a title, a warehaus:// url and createdAt, and a known cause if it has one"
 
     private static func decodeOpenExternal(_ m: [String: Any]) -> Result<PageMessage, BridgeRefusal> {
         guard let text = m["url"] as? String, let url = URL(string: text), url.scheme == "https", url.host != nil else {

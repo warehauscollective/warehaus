@@ -207,6 +207,18 @@ export default defineSchema({
     /** Why the runner stopped on this task. Staff only. */
     blockedReason: v.optional(v.string()),
     /**
+     * The Blocked cause (decision 0012): Needs input, Failed or Stalled. Set
+     * with the reason when a run blocks the task, cleared with it. Absent on a
+     * task a person moved to Blocked. Staff only.
+     */
+    blockedCause: v.optional(v.union(v.literal('needs_input'), v.literal('failed'), v.literal('stalled'))),
+    /**
+     * Staff's answer to a Needs input task (Answer and rerun), with the
+     * question it answers. It goes into the next run's prompt and is cleared
+     * when the task is Done or asks again. Staff only.
+     */
+    rerunAnswer: v.optional(v.object({ question: v.string(), answer: v.string(), by: v.string(), at: v.number() })),
+    /**
      * Portal project move. Tasks.Projects is SERVER, so this is not written
      * to Notion. The next pull keeps this project until Notion already matches.
      */
@@ -480,6 +492,17 @@ export default defineSchema({
     endedAt: v.optional(v.number()),
     /** Why a run failed or stuck. Staff only. Never a credential. */
     blockedReason: v.optional(v.string()),
+    /**
+     * The end of the agent's output from a failed task run: at most 4 KB,
+     * credentials masked before it is stored. Staff only. Never on a blocked
+     * or done run.
+     */
+    failureOutput: v.optional(v.string()),
+    /**
+     * Set when staff pressed Stop run. The run is closed at once; the runner
+     * is told to stop it for as long as it still lists the run as held.
+     */
+    stoppedAt: v.optional(v.number()),
     /** Cursor cloud agent id. Staff only. Not a secret. */
     externalId: v.optional(v.string()),
     /** Build runs: when this Cursor agent first started. A resumed build keeps it, so the 2-hour cap counts the whole agent. */

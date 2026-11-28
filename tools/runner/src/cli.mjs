@@ -22,9 +22,10 @@ import {
   removeSavedConfig,
   runSetup,
 } from './setup.mjs';
-import { runnerClient } from '../../../packages/runner-protocol/index.mjs';
+import { runnerClient, stopRequests } from '../../../packages/runner-protocol/index.mjs';
 import {
   attentionForStatus,
+  failureOutput,
   HEARTBEAT_MS,
   idleDelayMs,
   idleWait,
@@ -39,7 +40,9 @@ import {
   readEnv,
   RUNNER_HOME_DIR,
   runSlots,
+  runStops,
   selectDriver,
+  STOPPED,
   supervisorCommand,
   supervisorLine,
   taskOutcome,
@@ -74,6 +77,35 @@ const control = { paused: false, wake: null, changed: 0 };
  * (protocol 4). Set once the run slots exist in main().
  */
 let heldRuns = () => [];
+
+/** Stop run from the Portal: the runs in progress and how to end each one's agent. */
+const stops = runStops();
+
+/** How long a stopped agent gets to exit on its own before it is killed outright. */
+const STOP_GRACE_MS = 10_000;
+
+/** Ends an agent process: asks first, then kills it if it is still there after the grace. */
+function endProcess(child) {
+  child.kill('SIGTERM');
+  const timer = setTimeout(() => child.kill('SIGKILL'), STOP_GRACE_MS);
+  timer.unref();
+  child.once('close', () => clearTimeout(timer));
+}
+
+/**
+ * Reads the runs to stop from the Portal's answer to a claim or a ping
+ * (protocol 5) and ends the agent of each one this runner holds. The run's own
+ * flow then sees it was stopped and reports nothing further.
+ */
+function honourStops(reply) {
+  for (const runId of stops.stop(stopRequests(reply))) say(`Stop run from the Portal · ending run ${runId}`);
+  return reply;
+}
+
+/** A ping, with any stop in its answer honoured. */
+async function ping(config, body) {
+  return honourStops(await client(config).ping(body));
+}
 
 function listenForCommands() {
   const lines = createInterface({ input: process.stdin });
@@ -134,6 +166,7 @@ function runClaude(config, cwd, prompt, runId) {
       stdio: headless ? ['inherit', 'pipe', 'pipe'] : 'inherit',
       env: claudeEnv(config, runId),
     });
+    const unwatch = stops.watch(runId, () => endProcess(child));
     let tail = '';
     const keep = (out) => (chunk) => {
       out.write(chunk);
@@ -142,10 +175,14 @@ function runClaude(config, cwd, prompt, runId) {
     child.stdout?.on('data', keep(process.stdout));
     child.stderr?.on('data', keep(process.stderr));
     child.on('error', (error) => {
+      unwatch();
       say(`Could not start claude: ${error.message}`);
       done({ code: 127, tail: '' });
     });
-    child.on('close', (code) => done({ code: code ?? 1, tail }));
+    child.on('close', (code) => {
+      unwatch();
+      done({ code: code ?? 1, tail });
+    });
   });
 }
 
@@ -157,6 +194,7 @@ function runClaudePlan(config, cwd, prompt, runId) {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: claudeEnv(config, runId),
     });
+    const unwatch = stops.watch(runId, () => endProcess(child));
     let out = '';
     const keep = (chunk) => {
       out += String(chunk);
@@ -169,10 +207,14 @@ function runClaudePlan(config, cwd, prompt, runId) {
       err = (err + String(chunk)).slice(-OUTPUT_TAIL);
     });
     child.on('error', (error) => {
+      unwatch();
       say(`Could not start claude: ${error.message}`);
       done({ code: 127, out: '', err: '' });
     });
-    child.on('close', (code) => done({ code: code ?? 1, out, err }));
+    child.on('close', (code) => {
+      unwatch();
+      done({ code: code ?? 1, out, err });
+    });
   });
 }
 
@@ -222,7 +264,14 @@ async function doTask(config, work) {
   rmSync(join(notes, 'blocked.txt'), { force: true });
   rmSync(join(notes, 'design-done.txt'), { force: true });
   const before = git(dir, ['rev-parse', 'HEAD']).out;
+  if (stops.stopped(work.runId)) return STOPPED;
   const ran = await runClaude(config, dir, taskPrompt(readFileSync(join(prompts, 'task.md'), 'utf8'), work), work.runId);
+  // Stopped from the Portal: nothing is pushed and nothing is reported. Commits
+  // Claude made stay in the worktree; ones already on origin stay on the branch.
+  if (stops.stopped(work.runId)) {
+    say('Stopped. Nothing further is reported for this run.');
+    return STOPPED;
+  }
   const after = git(dir, ['rev-parse', 'HEAD']).out;
   const limit = usageLimitFrom(ran.tail);
   const outcome = taskOutcome({
@@ -242,12 +291,25 @@ async function doTask(config, work) {
     const pushed = git(dir, ['push', '-u', 'origin', work.milestone.branch]);
     if (!pushed.ok) {
       say(`Push failed: ${pushed.err}`);
-      await client(config).completeTask({ runId: work.runId, status: 'failed', reason: 'The push to origin failed' });
+      await client(config).completeTask({
+        runId: work.runId,
+        status: 'failed',
+        cause: 'failed',
+        reason: 'The push to origin failed',
+        output: failureOutput(`${ran.tail}\nPush failed: ${pushed.err}`),
+      });
       return;
     }
   }
   const prUrl = outcome.commitSha ? ensurePullRequest(dir, work) : null;
-  const result = await client(config).completeTask({ runId: work.runId, ...outcome, ...(prUrl ? { prUrl } : {}) });
+  // The end of Claude's output goes with a failed run only, never with a blocked or done one.
+  const output = outcome.status === 'failed' ? failureOutput(ran.tail) : '';
+  const result = await client(config).completeTask({
+    runId: work.runId,
+    ...outcome,
+    ...(prUrl ? { prUrl } : {}),
+    ...(output ? { output } : {}),
+  });
   if (result.milestoneStatus === 'Ready to Ship') markReadyForReview(dir, work.milestone.branch);
   say(`Reported ${outcome.status}${result.milestoneStatus ? ` · milestone is ${result.milestoneStatus}` : ''}`);
   return outcome.status;
@@ -262,6 +324,10 @@ async function doPlanning(config, work) {
     planPrompt(readFileSync(join(prompts, 'plan-milestone.md'), 'utf8'), work),
     work.runId,
   );
+  if (stops.stopped(work.runId)) {
+    say('Stopped. Nothing further is reported for this run.');
+    return STOPPED;
+  }
   const plan = parsePlanOutput(planned.out);
   const limit = plan.ok ? null : usageLimitFrom(`${planned.out}\n${planned.err}`);
   if (limit) {
@@ -332,7 +398,7 @@ function waitIdle(config, ms) {
     sleep: wakeableSleep,
     // A run that ends frees a slot, so the wait ends too.
     stopped: () => control.paused !== pausedAtStart || control.changed !== changedAtStart,
-    ping: () => client(config).ping({ paused: control.paused, held: heldRuns() }),
+    ping: () => ping(config, { paused: control.paused, held: heldRuns() }),
   });
 }
 
@@ -346,7 +412,7 @@ async function waitBusy(config, ms = HEARTBEAT_MS) {
   const pausedAtStart = control.paused;
   await wakeableSleep(ms);
   if (control.changed !== changedAtStart || control.paused !== pausedAtStart) return;
-  await client(config).ping({ held: heldRuns() }).catch((error) => say(error.message));
+  await ping(config, { held: heldRuns() }).catch((error) => say(error.message));
 }
 
 /** How long a GitHub sign-in check is trusted before `gh auth status` runs again. */
@@ -486,6 +552,7 @@ async function main() {
       ...(work.kind === 'task' ? { taskOrder: work.task?.order ?? null, task: work.task?.title ?? '' } : {}),
     };
     slots.start(work.runId);
+    stops.begin(work.runId);
     report('working', { ...about, running: slots.running });
     return (async () => {
       const release = holdAwake();
@@ -499,20 +566,24 @@ async function main() {
         else status = await doPlanning(config, work);
       } catch (error) {
         say(error.message);
-        // A clone that failed blocks the run with its own reason, which lands in an Ask waiting on Peter.
-        const blocked = typeof error.reason === 'string' && error.reason ? error.reason : null;
-        const reason = blocked ?? 'The runner hit an error';
-        const api = client(config);
-        const failure =
-          work.kind === 'build'
-            ? api.reportBuild({ runId: work.runId, status: 'failed', reason })
-            : work.kind === 'task'
-              ? api.completeTask({ runId: work.runId, status: blocked ? 'blocked' : 'failed', reason })
-              : api.failPlanning({ runId: work.runId, reason });
-        await failure.catch((failed) => say(failed.message));
-        status = blocked ? 'blocked' : 'failed';
+        if (stops.stopped(work.runId)) status = STOPPED;
+        else {
+          // A clone that failed blocks the run with its own reason, which lands in an Ask waiting on Peter.
+          const blocked = typeof error.reason === 'string' && error.reason ? error.reason : null;
+          const reason = blocked ?? 'The runner hit an error';
+          const api = client(config);
+          const failure =
+            work.kind === 'build'
+              ? api.reportBuild({ runId: work.runId, status: 'failed', reason })
+              : work.kind === 'task'
+                ? api.completeTask({ runId: work.runId, status: blocked ? 'blocked' : 'failed', cause: 'failed', reason })
+                : api.failPlanning({ runId: work.runId, reason });
+          await failure.catch((failed) => say(failed.message));
+          status = blocked ? 'blocked' : 'failed';
+        }
       } finally {
         release();
+        stops.end(work.runId);
       }
       // A Cursor agent still going: give the slot back, and follow it again after a minute.
       if (buildStillRunning) slots.coolDown(work.runId, idleDelayMs(1));
@@ -536,7 +607,7 @@ async function main() {
       }
       if (!pausedReported) report('paused');
       pausedReported = true;
-      await client(config).ping({ paused: true }).catch((error) => say(error.message));
+      await ping(config, { paused: true }).catch((error) => say(error.message));
       await wakeableSleep(HEARTBEAT_MS);
       continue;
     }
@@ -564,13 +635,15 @@ async function main() {
     }
     let work;
     try {
-      work = await client(config).claim({
-        mode: config.mode,
-        repos: config.repos,
-        slots: slots.size,
-        held: slots.held(),
-        ...(supervised ? { paused: false } : {}),
-      });
+      work = honourStops(
+        await client(config).claim({
+          mode: config.mode,
+          repos: config.repos,
+          slots: slots.size,
+          held: slots.held(),
+          ...(supervised ? { paused: false } : {}),
+        }),
+      );
       failures = 0;
     } catch (error) {
       say(error.message);

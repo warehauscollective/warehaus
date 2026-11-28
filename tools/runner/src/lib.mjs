@@ -1,6 +1,6 @@
 // Pure helpers for the runner. No network, no child processes, no file writes.
 // RUNNER_ID_PATTERN and the deployment names must match apps/portal/convex/_lib/agentRun.ts.
-import { COMPLETE_STATUSES, PLAN_TASKS_MAX, PLAN_TASKS_MIN, isMilestoneBranch } from '../../../packages/runner-protocol/index.mjs';
+import { COMPLETE_STATUSES, PLAN_TASKS_MAX, PLAN_TASKS_MIN, RUN_CAUSES, isMilestoneBranch, outputTail } from '../../../packages/runner-protocol/index.mjs';
 
 export const RUNNER_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
 export const PRODUCTION_DEPLOYMENT = 'unique-turtle-383';
@@ -423,17 +423,68 @@ export function parseGitLog(text) {
  * on the account usage limit is released: the task goes back to To do, with
  * no Ask, and any commit it made stays in the worktree for the
  * next run. Otherwise no new commit means the run failed.
+ * A result that is not done carries its cause: a blocked file is Claude asking
+ * for something (needs_input); anything else is failed.
  */
 export function taskOutcome({ before, after, blockedReason, usageLimit = null, designDone = '' }) {
   const reason = (blockedReason ?? '').replace(/\s+/g, ' ').trim();
   const [done, blocked, failed] = COMPLETE_STATUSES;
-  if (reason) return { status: blocked, reason: reason.slice(0, 240), ...(after && after !== before ? { commitSha: after } : {}) };
+  const [needsInput, runFailed] = RUN_CAUSES;
+  if (reason) {
+    return { status: blocked, cause: needsInput, reason: reason.slice(0, 240), ...(after && after !== before ? { commitSha: after } : {}) };
+  }
   if (usageLimit) return { status: RELEASED, reason: usageLimitReason(usageLimit) };
   // A design task works in Figma and commits nothing. Its done note is the proof.
   const designNote = (designDone ?? '').replace(/\s+/g, ' ').trim();
   if ((!after || after === before) && designNote) return { status: done };
-  if (!after || after === before) return { status: failed, reason: 'The run ended with no new commit' };
+  if (!after || after === before) return { status: failed, cause: runFailed, reason: 'The run ended with no new commit' };
   return { status: done, commitSha: after };
+}
+
+/** A run staff stopped from the Portal. Never sent: the runner reports nothing on a stopped run. */
+export const STOPPED = 'stopped';
+
+/**
+ * Stop run from the Portal (protocol 5). A run is known from its claim until
+ * it ends; while its agent process is going it has a `kill`. `stop` takes the
+ * run ids the Portal named, ends the agent of each known run once, and
+ * returns the ones it newly stopped. An id this runner does not hold is
+ * ignored. After that `stopped(id)` is true, and the caller reports nothing.
+ */
+export function runStops() {
+  const runs = new Map();
+  return {
+    begin(runId) {
+      runs.set(runId, { stopped: false, kill: null });
+    },
+    end(runId) {
+      runs.delete(runId);
+    },
+    /** Registers how to end the run's agent. Ends it at once if the stop came first. Returns the unregister. */
+    watch(runId, kill) {
+      const run = runs.get(runId);
+      if (!run) return () => {};
+      run.kill = kill;
+      if (run.stopped) kill();
+      return () => {
+        if (run.kill === kill) run.kill = null;
+      };
+    },
+    stop(runIds) {
+      const hit = [];
+      for (const runId of runIds ?? []) {
+        const run = runs.get(runId);
+        if (!run || run.stopped) continue;
+        run.stopped = true;
+        hit.push(runId);
+        run.kill?.();
+      }
+      return hit;
+    },
+    stopped(runId) {
+      return runs.get(runId)?.stopped === true;
+    },
+  };
 }
 
 /** A run handed back untouched. Not a Portal complete status: it travels on /agent/release. */
@@ -714,6 +765,23 @@ const SECRET_VALUE =
 function clip(text, limit) {
   const clean = String(text ?? '').replace(SECRET_VALUE, '[redacted]').replace(/\s+/g, ' ').trim();
   return clean.length > limit ? `${clean.slice(0, limit - 1)}…` : clean;
+}
+
+// Colour and cursor codes a terminal program writes. They are noise in the Portal.
+const ANSI_CODE = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
+
+/**
+ * What a failed run sends of the agent's output: the last 4 KB, with anything
+ * that looks like a token, key or signed value replaced. Empty when the run
+ * wrote nothing (an interactive run keeps the terminal, so nothing is read).
+ */
+export function failureOutput(tail) {
+  const clean = String(tail ?? '')
+    .replace(ANSI_CODE, '')
+    .replace(/\r\n?/g, '\n')
+    .replace(SECRET_VALUE, '[redacted]')
+    .trim();
+  return outputTail(clean);
 }
 
 function baseName(path) {

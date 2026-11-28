@@ -112,6 +112,23 @@ Portal decisions 0011 and 0014, milestone "Building indicator". Peter wants the 
 - A claim from a protocol 4 runner starts its run with `aliveAt` set. A run from an older runner never gets one and keeps the 30-minute rule.
 - A run with no sign of life for 5 minutes shows **Stalled** on the milestone (worked out in the browser from `aliveAt`, since queries do not rerun as time passes). After 15 minutes the stuck sweep blocks it with "Stalled: no sign of life from the runner for 15 minutes", even while the runner itself still pings. The sweep stays every 10 minutes to keep Convex usage low, so a stalled run is blocked 15 to 25 minutes after its last sign of life.
 
+## Amendment, 2026-11-28: cause, failure output and stop (protocol 5)
+
+Portal decisions 0012 to 0014, milestone "Run troubleshooting", task 02. This is the runner's side and the wire in `packages/runner-protocol`; the Portal's side is built in the milestone's later tasks.
+
+- `RUNNER_PROTOCOL_VERSION` is 5, and `STOP_RUN_PROTOCOL` is 5. The milestone says Stop run is for "protocol 3 runners", meaning runners that send signs of life, which are 4. A protocol 4 runner in the field ignores a stop, so honouring it is a new version, and the Portal offers Stop run only on a run from a protocol 5 runner.
+- A task result that is not `done` carries `cause`: `needs_input` when Claude wrote `.runner/blocked.txt`, `failed` for a run with no new commit, a failed push or a runner error (a failed clone still reports `blocked`, with cause `failed`). `stalled` is the Portal's own cause and is never sent. A release for the usage limit has no cause.
+- A `failed` result also carries `output`: the last 4 KB (4096 UTF-8 bytes, `outputTail`) of Claude's output, with tokens replaced and terminal colour codes removed. A blocked or done result never carries it; the client drops it. An interactive run has no output to send.
+- The answer to a claim or a ping may carry `stop: [<runId>]` (`stopRequests`). The runner ends Claude Code for each run it holds (SIGTERM, then SIGKILL after 10 seconds), pushes nothing and makes no further call for that run. The Portal closes the run when staff press Stop run and ignores anything that arrives late. The Portal may repeat the id until the runner stops listing the run in `held`.
+- An older Portal ignores `cause` and `output` and never answers `stop`, so a protocol 5 runner works against it unchanged.
+
+The Portal's side, task 03 (`convex/agent.ts`):
+
+- A Blocked task carries `blockedCause` with its reason: the runner's `cause`, or by status for an older runner (`blocked` is Needs input, `failed` is Failed). The stuck sweep sets Stalled. A failed run keeps `failureOutput` on the run, cut to 4 KB and masked again before it is stored.
+- Staff mutations `rerunTask`, `answerAndRerun` and `stopRun` take the task. Rerun puts any Blocked task back in To Do and closes its Ask; it is refused on a Done task and while the task's last run is still winding down.
+- Answer and rerun stores the answer with the question on the task (`rerunAnswer`). A task claim carries it as `task.answer: { question, answer }`, or `null`. It is cleared when the task is Done or blocks again with Needs input. The runner does not put it in the prompt yet: that is still to build.
+- Stop run closes the run at once (`cancelled`, `stoppedAt`) and leaves the task Blocked with cause Failed and the reason "Stopped by <name>", so the next claim does not start it again. It opens no Ask: staff stopped it themselves. The run is not settled, so Rerun waits until the runner stops listing it in `held`, or 10 minutes. A result that arrives after the stop finds the run ended and writes nothing.
+
 ## Amendment, 2026-11-27: production starts the preview and stores its link
 
 ADR-0009 decision 2, first part of the Portal milestone "Preview link on the tile" (pull request 228). The Decision above says everything the work produces for review stays on dev. That still holds for where a preview runs. It no longer holds for where its link is stored: real milestones live on production, and until now their tile never got the link.

@@ -15,6 +15,8 @@ export const BRIDGE_VERSION = 1;
 
 export const SHELL_CAPABILITIES = Object.freeze(['badge', 'notify', 'openExternal']);
 export const ALERT_KINDS = Object.freeze(['ask', 'readyToShip']);
+/** Why a blocked Ask's task stopped (its Blocked cause). Only on an `ask` alert for a Blocked task. */
+export const ALERT_CAUSES = Object.freeze(['needs_input', 'failed', 'stalled']);
 export const PORTAL_LINK_SCHEME = 'warehaus:';
 /** At most this many alerts in one attention message. */
 export const MAX_ALERTS = 20;
@@ -76,7 +78,10 @@ function decodeAlert(a) {
   if (!ALERT_KINDS.includes(a.kind)) return null;
   if (!urlWithScheme(a.url, PORTAL_LINK_SCHEME)) return null;
   if (typeof a.createdAt !== 'number' || !Number.isFinite(a.createdAt)) return null;
-  return { id: a.id, kind: a.kind, title: a.title, url: a.url, createdAt: a.createdAt };
+  const alert = { id: a.id, kind: a.kind, title: a.title, url: a.url, createdAt: a.createdAt };
+  if (a.cause == null) return alert;
+  if (a.kind !== 'ask' || !ALERT_CAUSES.includes(a.cause)) return null;
+  return { ...alert, cause: a.cause };
 }
 
 function decodeAttention(m) {
@@ -85,7 +90,7 @@ function decodeAttention(m) {
   const alerts = [];
   for (const raw of m.alerts) {
     const alert = decodeAlert(raw);
-    if (!alert) return fail('each alert needs an id, a known kind, a title, a warehaus:// url and createdAt');
+    if (!alert) return fail('each alert needs an id, a known kind, a title, a warehaus:// url and createdAt, and a known cause if it has one');
     alerts.push(alert);
   }
   return { ok: true, message: { type: 'attention', count: m.count, alerts } };

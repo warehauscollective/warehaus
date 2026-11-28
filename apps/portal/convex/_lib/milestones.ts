@@ -14,6 +14,7 @@ import {
   type MilestoneStatus,
 } from './milestoneStatus';
 import type { BuildingPhase, TaskKind } from './designGate';
+import { blockedCause, type BlockedCause } from './troubleshoot';
 import type { MilestoneCreatedVia, TaskOrigin } from './milestoneTasks';
 import { classifyMilestoneTasks, roadmapCounts, taskSetGroups } from './milestoneTaskSet';
 
@@ -307,6 +308,7 @@ export type RoadmapTaskInput = {
   runner?: string | null;
   commit?: string | null;
   blockedReason?: string | null;
+  blockedCause?: string | null;
   nextAction?: string | null;
 };
 
@@ -335,6 +337,8 @@ export type RoadmapChild = {
   commit?: string;
   /** Staff only. Why the runner stopped on the task. */
   blockedReason?: string;
+  /** Staff only. The Blocked cause a run left: Needs input, Failed or Stalled. */
+  blockedCause?: BlockedCause;
   /** Staff only. The task's next action. On a Blocked task it is what the task is waiting on. */
   nextAction?: string;
   archived?: boolean;
@@ -380,6 +384,7 @@ function roadmapTask(
     ...(audience === 'staff' && task.runner ? { runner: task.runner } : {}),
     ...(audience === 'staff' && task.commit ? { commit: task.commit.slice(0, 7) } : {}),
     ...(audience === 'staff' && task.blockedReason ? { blockedReason: task.blockedReason } : {}),
+    ...(audience === 'staff' && blockedCause(task.blockedCause) ? { blockedCause: blockedCause(task.blockedCause)! } : {}),
     ...(audience === 'staff' && task.nextAction ? { nextAction: task.nextAction } : {}),
   };
 }

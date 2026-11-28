@@ -321,6 +321,7 @@ async function roadmapTasks(
       runner: task.claimedBy ?? null,
       commit: task.lastCommitSha ?? null,
       blockedReason: task.blockedReason ?? null,
+      blockedCause: task.blockedCause ?? null,
       nextAction: task.nextAction ?? null,
     });
   }

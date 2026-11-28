@@ -211,6 +211,7 @@ export async function applyTaskChanges(
           patch.claimedBy = undefined;
           patch.claimedAt = undefined;
           patch.blockedReason = undefined;
+          patch.blockedCause = undefined;
         }
         writes.push({
           kind: 'task-status',

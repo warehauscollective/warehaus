@@ -1,6 +1,7 @@
 export declare const BRIDGE_VERSION: 1;
 export declare const SHELL_CAPABILITIES: readonly ShellCapability[];
 export declare const ALERT_KINDS: readonly AlertKind[];
+export declare const ALERT_CAUSES: readonly AlertCause[];
 export declare const PORTAL_LINK_SCHEME: 'warehaus:';
 export declare const MAX_ALERTS: number;
 export declare const SHELL_HANDLER_NAME: 'warehaus';
@@ -8,6 +9,8 @@ export declare const SHELL_EVENT: 'warehaus:shell';
 
 export type ShellCapability = 'badge' | 'notify' | 'openExternal';
 export type AlertKind = 'ask' | 'readyToShip';
+/** The Blocked cause of the task a blocked Ask is about. */
+export type AlertCause = 'needs_input' | 'failed' | 'stalled';
 
 /** A warehaus:// link. The Portal resolves it to a page; the shell never parses it. */
 export type PortalLink = string;
@@ -28,6 +31,8 @@ export type AttentionAlert = {
   title: string;
   url: PortalLink;
   createdAt: number;
+  /** Only on an `ask` alert for a Blocked task that carries a cause. */
+  cause?: AlertCause;
 };
 
 export type Attention = { type: 'attention'; count: number; alerts: AttentionAlert[] };

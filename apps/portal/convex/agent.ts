@@ -53,7 +53,14 @@ import {
   RUNNER_BUSY,
   RUNNER_MAX_SLOTS,
   runnerSlots,
+  RERUN_NOT_NEEDS_INPUT,
+  rerunAnswerText,
+  STOP_NO_RUN,
+  stopRunDecision,
+  stoppedReason,
+  type BlockedCause,
 } from './_lib/agentRun';
+import { TROUBLESHOOT_EVENTS, troubleshootView, type TroubleshootView } from './_lib/troubleshoot';
 import { closeAsk, closeAsksOnMilestone, openAsk, openAsks, openAsksOnMilestone, type AskReason } from './_lib/askStore';
 import { proposedTasksDecision } from './_lib/milestoneBot';
 import { changeMilestoneStatus } from './_lib/milestoneLifecycle';
@@ -75,7 +82,7 @@ import {
   runnerPausePatch,
 } from './_lib/runnerRegistry';
 import { registeredRunners, sweepExpiredPairings } from './_lib/runnerRegistryStore';
-import { RUNNER_PROTOCOL_MIN } from '@warehaus/runner-protocol';
+import { RUNNER_PROTOCOL_MIN, STOP_RUN_PROTOCOL } from '@warehaus/runner-protocol';
 import { aliveWriteDue } from './_lib/buildRun';
 import { PRODUCTION_DEPLOYMENT } from './_lib/reviewPreview';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
@@ -219,14 +226,16 @@ export const touchRunner = internalMutation({
       now,
     });
     if (!decision.ok) return failure(429, decision.reason);
-    if (alive?.length) await markRunsAlive(ctx, runnerId, alive, now);
+    // Protocol 5: a held run staff stopped is named in the answer until the runner lets go of it.
+    const stop = alive?.length ? await markRunsAlive(ctx, runnerId, alive, now) : [];
+    const stops = stop.length && (protocolVersion ?? 0) >= STOP_RUN_PROTOCOL ? { stop } : {};
     const versionChanged = protocolVersion != null && row?.protocolVersion !== protocolVersion;
     const pause = runnerPausePatch(row?.pausedAt, paused, now);
     if (!decision.write) {
       if (row && (versionChanged || pause)) {
         await ctx.db.patch(row._id, { ...(versionChanged ? { protocolVersion } : {}), ...(pause ?? {}) });
       }
-      return { ok: true as const, registered };
+      return { ok: true as const, registered, ...stops };
     }
     const version = protocolVersion != null ? { protocolVersion } : {};
     if (row) {
@@ -254,7 +263,7 @@ export const touchRunner = internalMutation({
         ...version,
       });
     }
-    return { ok: true as const, registered };
+    return { ok: true as const, registered, ...stops };
   },
 });
 
@@ -262,16 +271,24 @@ export const touchRunner = internalMutation({
  * Signs of life (protocol 4). Each run id the runner says it holds, that is
  * its own and still running, gets `aliveAt`, at most once a minute. A point
  * read per id, capped at the runner's slots, so this stays a few reads.
+ * Returns the held runs staff stopped (Stop run), from the same reads: the
+ * runner still works them and has to be told.
  */
-async function markRunsAlive(ctx: MutationCtx, runnerId: string, runIds: readonly string[], now: number) {
+async function markRunsAlive(ctx: MutationCtx, runnerId: string, runIds: readonly string[], now: number): Promise<string[]> {
+  const stopped: string[] = [];
   for (const raw of runIds.slice(0, RUNNER_MAX_SLOTS * 2)) {
     const id = ctx.db.normalizeId('agentRuns', raw);
     if (!id) continue;
     const run = await ctx.db.get(id);
-    if (!run || run.runnerId !== runnerId || run.status !== 'running') continue;
+    if (!run || run.runnerId !== runnerId) continue;
+    if (run.status !== 'running') {
+      if (run.stoppedAt != null) stopped.push(run._id);
+      continue;
+    }
     if (!aliveWriteDue(run.aliveAt, now)) continue;
     await ctx.db.patch(run._id, { aliveAt: now });
   }
+  return stopped;
 }
 
 /** The runner's open runs, oldest first. Capped: a runner holds at most RUNNER_MAX_SLOTS. */
@@ -347,6 +364,8 @@ async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
       round: task.round ?? null,
       /** Design tasks work in Figma and never change code (task.md). */
       kind: taskKind(task),
+      /** Staff's answer to what the last run asked (Answer and rerun). It goes into the prompt. */
+      answer: task.rerunAnswer ? { question: task.rerunAnswer.question, answer: task.rerunAnswer.answer } : null,
     },
     driver: 'claude_code' as const,
   };
@@ -534,6 +553,7 @@ export const claimNext = internalMutation({
             claimedBy: args.runnerId,
             claimedAt: now,
             blockedReason: undefined,
+            blockedCause: undefined,
             updatedAt: now,
           });
         }
@@ -548,6 +568,7 @@ export const claimNext = internalMutation({
         claimedBy: args.runnerId,
         claimedAt: now,
         blockedReason: undefined,
+        blockedCause: undefined,
         updatedAt: now,
       });
       const runId = await ctx.db.insert('agentRuns', {
@@ -633,9 +654,11 @@ export const recordEvent = internalMutation({
 
 /**
  * Ends a task run. `done` closes the task and stores the commit. `blocked`
- * keeps the reason on the task. `failed` hands the task back as To do. When
- * the last open task is done the milestone moves to Ready to Ship. A repeat
- * for a run that already ended returns the stored outcome and writes nothing.
+ * and `failed` both leave the task Blocked with its reason and Blocked cause
+ * (Needs input or Failed) and open an Ask; a failed run also keeps the end of
+ * its output. When the last open task is done the milestone moves to Ready to
+ * Ship. A repeat for a run that already ended returns the stored outcome and
+ * writes nothing: that is also what keeps a late result from undoing Stop run.
  */
 export const completeTask = internalMutation({
   args: {
@@ -646,6 +669,10 @@ export const completeTask = internalMutation({
     reason: v.optional(v.any()),
     /** The milestone's pull request, when the runner opened or found one. */
     prUrl: v.optional(v.any()),
+    /** Protocol 5: why a run that is not done stopped (`needs_input` or `failed`). */
+    cause: v.optional(v.any()),
+    /** Protocol 5: the end of the agent's output. Kept on a failed run only. */
+    output: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const owned = await ownedRun(ctx, args.runnerId, args.runId);
@@ -666,7 +693,13 @@ export const completeTask = internalMutation({
     if (!decision.ok) return failure(400, decision.reason);
     const task = await ctx.db.get(run.taskId);
     const now = Date.now();
-    await ctx.db.patch(run._id, { status: decision.run, endedAt: now, settledAt: now });
+    await ctx.db.patch(run._id, {
+      status: decision.run,
+      endedAt: now,
+      settledAt: now,
+      ...(decision.status !== 'done' && decision.reason ? { blockedReason: decision.reason } : {}),
+      ...(decision.output ? { failureOutput: decision.output } : {}),
+    });
     if (!task || !milestone) return { ok: true as const, duplicate: false, run: decision.run, milestoneStatus: null };
 
     await ctx.db.patch(task._id, {
@@ -674,7 +707,10 @@ export const completeTask = internalMutation({
       isDone: decision.task.isDone,
       claimedBy: decision.status === 'blocked' ? task.claimedBy : undefined,
       claimedAt: decision.status === 'blocked' ? task.claimedAt : undefined,
-      blockedReason: decision.status === 'blocked' ? (decision.reason ?? undefined) : undefined,
+      blockedReason: decision.status === 'done' ? undefined : (decision.reason ?? undefined),
+      blockedCause: decision.cause ?? undefined,
+      // The answer is spent once the task is done, or once the run asks something new.
+      ...(task.rerunAnswer && (decision.status === 'done' || decision.cause === 'needs_input') ? { rerunAnswer: undefined } : {}),
       ...(decision.commitSha ? { lastCommitSha: decision.commitSha } : {}),
       updatedAt: now,
     });
@@ -912,6 +948,7 @@ export const releaseRun = internalMutation({
           claimedBy: undefined,
           claimedAt: undefined,
           blockedReason: undefined,
+          blockedCause: undefined,
           updatedAt: now,
         });
       }
@@ -958,7 +995,7 @@ export const releaseStuckRuns = internalMutation({
         // One Cursor agent per milestone, and none past 2 hours: blocked with an Ask waiting on Peter.
         const long = await ctx.db.get(run.milestoneId);
         if (long) {
-          await blockCursorBuild(ctx, run, long, run.runnerId, CURSOR_BUILD_TOO_LONG, now, false);
+          await blockCursorBuild(ctx, run, long, run.runnerId, CURSOR_BUILD_TOO_LONG, now, false, 'failed');
           released += 1;
           continue;
         }
@@ -967,7 +1004,7 @@ export const releaseStuckRuns = internalMutation({
       const why = stuckRunReason(run.aliveAt);
       const milestone = await ctx.db.get(run.milestoneId);
       if (run.kind === 'build' && milestone) {
-        await blockCursorBuild(ctx, run, milestone, run.runnerId, why, now, false);
+        await blockCursorBuild(ctx, run, milestone, run.runnerId, why, now, false, 'stalled');
         released += 1;
         continue;
       }
@@ -980,6 +1017,7 @@ export const releaseStuckRuns = internalMutation({
             claimedBy: undefined,
             claimedAt: undefined,
             blockedReason: why,
+            blockedCause: 'stalled',
             updatedAt: now,
           });
           if (milestone) {
@@ -1123,6 +1161,8 @@ async function blockCursorBuild(
   now: number,
   /** True when the runner reported it. The stuck sweep leaves the run unsettled. */
   settled: boolean,
+  /** The Blocked cause its tasks carry: Stalled from the stuck sweep, else Failed. */
+  cause: BlockedCause,
 ) {
   await ctx.db.patch(run._id, { status: 'failed', endedAt: now, blockedReason: why, ...(settled ? { settledAt: now } : {}) });
   const tasks = await ctx.db
@@ -1136,6 +1176,7 @@ async function blockCursorBuild(
       status: 'Blocked',
       isDone: false,
       blockedReason: why,
+      blockedCause: cause,
       updatedAt: now,
     });
   }
@@ -1198,7 +1239,7 @@ export const reportBuild = internalMutation({
     if (args.status === 'failed') {
       const reason = eventSummary(typeof args.reason === 'string' && args.reason.trim() ? args.reason : 'The Cursor agent stopped');
       const why = reason.ok ? reason.summary : 'The Cursor agent stopped';
-      await blockCursorBuild(ctx, run, milestone, args.runnerId, why, now, true);
+      await blockCursorBuild(ctx, run, milestone, args.runnerId, why, now, true, 'failed');
       return { ok: true as const, duplicate: false, milestoneStatus: milestone.status };
     }
     if (args.status !== 'finished') return failure(400, 'Status must be running, finished, or failed');
@@ -1220,6 +1261,7 @@ export const reportBuild = internalMutation({
         claimedBy: undefined,
         claimedAt: undefined,
         blockedReason: undefined,
+        blockedCause: undefined,
         lastCommitSha: decision.commitSha,
         updatedAt: now,
       });
@@ -1243,6 +1285,7 @@ export const reportBuild = internalMutation({
         'The Cursor agent finished without a Portal-Task trailer',
         now,
         true,
+        'failed',
       );
       return { ok: true as const, duplicate: false, milestoneStatus: milestone.status };
     }
@@ -1293,6 +1336,7 @@ export async function retryBlockedWork(
         claimedBy: undefined,
         claimedAt: undefined,
         blockedReason: undefined,
+        blockedCause: undefined,
         updatedAt: now,
       });
       await answerNotes(ctx, milestone._id, { reason: 'blocked', taskId: task._id });
@@ -1314,6 +1358,7 @@ export async function retryBlockedWork(
         claimedBy: undefined,
         claimedAt: undefined,
         blockedReason: undefined,
+        blockedCause: undefined,
         updatedAt: now,
       });
     }
@@ -1338,6 +1383,140 @@ export const retryBlocked = adminMutation({
     const result = await retryBlockedWork(ctx, args);
     if (!result.ok) throw new PortalAuthError(result.error, 'FORBIDDEN');
     return { ok: true as const };
+  },
+});
+
+const taskOrderLabel = (task: Doc<'tasks'>) => String((task.milestoneOrder ?? 0) + 1).padStart(2, '0');
+
+export const RERUN_DONE_TASK = 'A Done task is never rerun.';
+export const FIX_TASK_NOT_FOUND = 'Task not found';
+export const FIX_TASK_NO_MILESTONE = 'That task is not on a milestone.';
+
+/**
+ * Rerun, and Answer and rerun (decision 0013). Puts one Blocked task back in
+ * To do, whichever task it is, and closes its Ask; the next claim runs it.
+ * With an answer the task must be Needs input, and the answer is kept with
+ * the question it answers for the next run's prompt. A Done task is never
+ * rerun. Refused, with nothing written, while the task's last run is still
+ * going or winding down. `by` is the staff member or bot, for the feed.
+ */
+export async function rerunTaskWork(
+  ctx: MutationCtx,
+  args: { taskId: Id<'tasks'>; by: string; answer?: unknown },
+): Promise<{ ok: true } | Failure> {
+  const task = await ctx.db.get(args.taskId);
+  if (!task) return failure(404, FIX_TASK_NOT_FOUND);
+  if (!task.milestoneId) return failure(400, FIX_TASK_NO_MILESTONE);
+  if (task.isDone) return failure(400, RERUN_DONE_TASK);
+  const blocked = taskRetryDecision(task);
+  if (!blocked.ok) return failure(400, blocked.reason);
+  let answer: string | null = null;
+  if (args.answer !== undefined) {
+    if (task.blockedCause !== 'needs_input') return failure(400, RERUN_NOT_NEEDS_INPUT);
+    const parsed = rerunAnswerText(args.answer);
+    if (!parsed.ok) return failure(400, parsed.reason);
+    answer = parsed.answer;
+  }
+  const retried = await retryBlockedWork(ctx, { milestoneId: task.milestoneId, taskId: task._id });
+  if (!retried.ok) return retried;
+  const now = Date.now();
+  if (answer) {
+    await ctx.db.patch(task._id, { rerunAnswer: { question: task.blockedReason ?? '', answer, by: args.by, at: now } });
+  }
+  await writeEvent(ctx, {
+    orgId: task.orgId,
+    milestoneId: task.milestoneId,
+    type: 'note',
+    summary: `Task ${taskOrderLabel(task)} ${answer ? 'answered and queued to rerun' : 'queued to rerun'} · ${args.by}`,
+    at: now,
+  });
+  return { ok: true };
+}
+
+/** Runs read to find the one going on a task. One runs at a time; the rest are its history. */
+const TASK_RUN_SCAN = 3;
+
+/**
+ * Stop run (decision 0014). Closes the task's running run at once and leaves
+ * the task Blocked, so the next claim does not start it again: staff Rerun it
+ * when they want it back. The run is not settled, so it holds the task until
+ * the runner lets go of it, and the runner is told to stop on its next claim
+ * or ping (`touchRunner`). Commits already pushed stay on the branch, and
+ * whatever the run reports afterwards is ignored: it has ended. Only for a
+ * task run on a runner that honours stop. A second press writes nothing.
+ */
+export async function stopRunWork(
+  ctx: MutationCtx,
+  args: { taskId: Id<'tasks'>; by: string },
+): Promise<{ ok: true; stopped: boolean } | Failure> {
+  const task = await ctx.db.get(args.taskId);
+  if (!task) return failure(404, FIX_TASK_NOT_FOUND);
+  const runs = await ctx.db
+    .query('agentRuns')
+    .withIndex('by_task', (q) => q.eq('taskId', task._id))
+    .order('desc')
+    .take(TASK_RUN_SCAN);
+  const run = runs.find((row) => row.status === 'running');
+  // Already stopped: the same press twice.
+  if (!run && runs[0]?.stoppedAt != null) return { ok: true, stopped: false };
+  if (!run) return failure(409, STOP_NO_RUN);
+  const runner = await ctx.db
+    .query('agentRunners')
+    .withIndex('by_runnerId', (q) => q.eq('runnerId', run.runnerId))
+    .unique();
+  const decision = stopRunDecision({ run, runnerProtocol: runner?.protocolVersion });
+  if (!decision.ok) return failure(409, decision.reason);
+  const now = Date.now();
+  const why = stoppedReason(args.by);
+  await ctx.db.patch(run._id, { status: 'cancelled', endedAt: now, stoppedAt: now, blockedReason: why });
+  if (!task.isDone && task.claimedBy === run.runnerId) {
+    await ctx.db.patch(task._id, {
+      status: 'Blocked',
+      claimedBy: undefined,
+      claimedAt: undefined,
+      blockedReason: why,
+      blockedCause: 'failed',
+      updatedAt: now,
+    });
+  }
+  await writeEvent(ctx, {
+    orgId: run.orgId,
+    milestoneId: run.milestoneId,
+    runId: run._id,
+    type: 'stop',
+    summary: `Run stopped · task ${taskOrderLabel(task)} · ${args.by}`,
+    at: now,
+  });
+  return { ok: true, stopped: true };
+}
+
+/** Rerun on a Blocked card or in the Troubleshoot section. Any staff member. */
+export const rerunTask = adminMutation({
+  args: { taskId: v.id('tasks') },
+  handler: async (ctx, args) => {
+    const result = await rerunTaskWork(ctx, { taskId: args.taskId, by: ctx.identity.name });
+    if (!result.ok) throw new PortalAuthError(result.error, 'FORBIDDEN');
+    return { ok: true as const };
+  },
+});
+
+/** Answer and rerun on a Needs input task. Any staff member. */
+export const answerAndRerun = adminMutation({
+  args: { taskId: v.id('tasks'), answer: v.string() },
+  handler: async (ctx, args) => {
+    const result = await rerunTaskWork(ctx, { taskId: args.taskId, by: ctx.identity.name, answer: args.answer });
+    if (!result.ok) throw new PortalAuthError(result.error, 'FORBIDDEN');
+    return { ok: true as const };
+  },
+});
+
+/** Stop run in the Troubleshoot section. Any staff member. */
+export const stopRun = adminMutation({
+  args: { taskId: v.id('tasks') },
+  handler: async (ctx, args) => {
+    const result = await stopRunWork(ctx, { taskId: args.taskId, by: ctx.identity.name });
+    if (!result.ok) throw new PortalAuthError(result.error, 'FORBIDDEN');
+    return { ok: true as const, stopped: result.stopped };
   },
 });
 
@@ -1410,9 +1589,54 @@ export const buildingProgress = adminQuery({
           state: buildTaskState(task),
           commit: shortSha(task.lastCommitSha),
           blockedReason: task.blockedReason ?? null,
+          blockedCause: task.blockedCause ?? null,
         })),
       events: events.map((row) => ({ id: row._id, type: eventType(row.type), summary: row.summary, at: row.at })),
     };
+  },
+});
+
+/**
+ * The staff-only Troubleshoot section of the task modal (decision 0012): the
+ * task's cause and reason or its run going, that run's events, the end of a
+ * failed run's output, the branch and the last commit. Null when there is
+ * nothing to troubleshoot. Indexed and capped: the task's newest runs, one
+ * run's newest events and one runner row. Clients have no query here.
+ */
+export const taskTroubleshoot = adminQuery({
+  args: { taskId: v.id('tasks') },
+  handler: async (ctx, args): Promise<TroubleshootView | null> => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task || !task.milestoneId || task.isDone) return null;
+    const runs = await ctx.db
+      .query('agentRuns')
+      .withIndex('by_task', (q) => q.eq('taskId', task._id))
+      .order('desc')
+      .take(TASK_RUN_SCAN);
+    const run = runs.find((row) => row.status === 'running') ?? runs[0] ?? null;
+    if (run?.status !== 'running' && !(task.status === 'Blocked' && task.blockedCause)) return null;
+    const events = run
+      ? await ctx.db
+          .query('agentEvents')
+          .withIndex('by_run', (q) => q.eq('runId', run._id))
+          .order('desc')
+          .take(TROUBLESHOOT_EVENTS)
+      : [];
+    const runner =
+      run?.status === 'running'
+        ? await ctx.db
+            .query('agentRunners')
+            .withIndex('by_runnerId', (q) => q.eq('runnerId', run.runnerId))
+            .unique()
+        : null;
+    const milestone = await ctx.db.get(task.milestoneId);
+    return troubleshootView({
+      task,
+      run,
+      events: events.map((row) => ({ id: row._id, summary: row.summary, at: row.at })),
+      branch: milestone?.branch ?? null,
+      runnerStops: stopRunDecision({ run, runnerProtocol: runner?.protocolVersion }).ok,
+    });
   },
 });
 
