@@ -13,7 +13,7 @@ import {
   isMilestoneStatus,
   type MilestoneStatus,
 } from './milestoneStatus';
-import type { BuildingPhase, TaskKind } from './designGate';
+import type { BuildingPhase, MilestoneWorkType, TaskKind } from './designGate';
 import type { MilestoneCreatedVia, TaskOrigin } from './milestoneTasks';
 import { classifyMilestoneTasks, roadmapCounts, taskSetGroups } from './milestoneTaskSet';
 
@@ -617,6 +617,11 @@ export type MilestoneRoadmapView = {
   designApprovedAt?: number;
   /** Staff only. The design gate: whether build waits, and the Building phase. */
   designGate?: { visual: boolean; buildLocked: boolean; phase: BuildingPhase };
+  /**
+   * Staff and clients. Design tasks only, build tasks only, or both, from the
+   * counted tasks (`milestoneWorkType`). Absent when no task counts. Names no task.
+   */
+  workType?: MilestoneWorkType;
   /** Staff only. On a Shipped milestone with a recorded merge: whether a deploy run has covered it. */
   deploy?: 'not-deployed' | 'deployed';
   /** Staff only. Where the milestone was created. Absent for clients, including the key. */

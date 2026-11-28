@@ -125,7 +125,7 @@ import {
   requestDesignChangesDecision,
 } from './_lib/designApproval';
 import { deployMark } from './_lib/deploy';
-import { designGate, taskKind, TASK_KIND_NEEDS_MILESTONE } from './_lib/designGate';
+import { designGate, milestoneWorkType, taskKind, TASK_KIND_NEEDS_MILESTONE } from './_lib/designGate';
 import { stageForNewMilestoneTask } from './_lib/milestoneTasks';
 import { setTaskKind as writeTaskKind, syncDesignAsk } from './_lib/designGateStore';
 import {
@@ -417,6 +417,8 @@ async function toRoadmap(
   const updatedAt =
     audience === 'staff' && showsUpdatedStamp(milestone.status) ? await lastChangeFor(ctx, milestone, tasks) : null;
   const buildRun = await milestoneBuildRun(ctx, milestone, tasks, audience);
+  // From every task on the milestone, published or not: a client learns the type, never a title.
+  const workType = milestoneWorkType(inputs.filter((task) => task.milestoneId === milestone._id));
   const view: MilestoneRoadmapView = {
     id: milestone._id,
     name: milestone.name,
@@ -434,6 +436,7 @@ async function toRoadmap(
     ...(audience === 'staff' && milestone.figmaUrl ? { figmaUrl: milestone.figmaUrl } : {}),
     ...(audience === 'staff' && milestone.designApprovedAt ? { designApprovedAt: milestone.designApprovedAt } : {}),
     ...(audience === 'staff' ? { designGate: roadmapDesignGate(inputs, milestone) } : {}),
+    ...(workType ? { workType } : {}),
     ...(audience === 'staff' ? roadmapDeployMark(milestone) : {}),
     creatorName: await creatorNameFor(ctx, milestone),
     ...(audience === 'staff' && milestone.createdVia ? { createdVia: milestone.createdVia } : {}),

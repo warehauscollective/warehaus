@@ -4,7 +4,7 @@ import { groupMilestones } from '@convex/_lib/milestoneTasks';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
-import { clearSearchParam } from '@/lib/nav/clearSearchParam';
+import { clearSearchParam, replaceSearch } from '@/lib/nav/clearSearchParam';
 import { MILESTONE_PARAM, milestoneFromSearch } from '@/lib/nav/portalLink';
 import { DoneGroup } from './DoneGroup';
 import { NeedMilestoneBanner } from './NeedMilestoneBanner';
@@ -59,6 +59,23 @@ import {
 import { type RoadmapProject, type MilestoneActivityItem, type ResourceChoice, type FixturePatch, nextDueLabel, projectStatusLabel } from './milestoneTile';
 import { ProjectResources, ActivityList } from './roadmapParts';
 import { MilestoneListCard } from './MilestoneListCard';
+import { MilestoneFilterBar, MilestoneFiltersEmpty, type MilestoneListViewChange } from './MilestoneFilterBar';
+import { approvalNeedsYou } from './milestoneDetailsEdit';
+import {
+  emptyMilestoneListView,
+  milestoneFilterResult,
+  sameMilestoneListView,
+  type MilestoneListView,
+} from '@/lib/data/milestoneFilters';
+import {
+  milestoneViewFromSearch,
+  openingMilestoneView,
+  readStoredMilestoneView,
+  searchWithMilestoneView,
+  searchWithoutMilestoneFilters,
+  sessionMilestoneViewStore,
+  writeStoredMilestoneView,
+} from '@/lib/data/milestoneFilterAddress';
 import { CreateMilestone } from './MilestoneForms';
 import { MilestoneDetail } from './MilestoneDetailView';
 import { RunnerHealth } from './RunnerStatus';
@@ -197,6 +214,14 @@ export function ProjectRoadmap({
   const [milestoneLayout, setMilestoneLayout] = useState<'list' | 'board'>(
     searchParams.get('layout') === 'board' ? 'board' : 'list',
   );
+  // The milestone filters. Kept in the address and, per project, for the session. Not saved in Convex.
+  const [milestoneView, setMilestoneView] = useState<MilestoneListView>(
+    () => milestoneViewFromSearch(searchParams.toString(), staff) ?? emptyMilestoneListView(),
+  );
+  // True while filters from the address or the session may open Done, until the viewer picks or toggles Done.
+  const [openedFiltered, setOpenedFiltered] = useState(true);
+  // The address without the filter params, as last read. A filter pick rewrites the address and must not reset the rest.
+  const pageSearchRead = useRef<string | null>(null);
   const phone = useMaxWidth(767);
   const projectContext = useProjectContext({ projectId: project.id, staff, fixtures, live, hostSlug });
   const rememberedMilestones = useRef<MilestoneRoadmapView[]>([]);
@@ -230,6 +255,21 @@ export function ProjectRoadmap({
   }, [project.id]);
   useEffect(() => {
     const params = new URLSearchParams(searchKey);
+    // The filters: the address wins, then the view kept for this project this session. Unknown values drop.
+    const store = sessionMilestoneViewStore();
+    const opening = openingMilestoneView({
+      search: searchKey,
+      stored: readStoredMilestoneView(store, project.id, staff),
+      staff,
+    });
+    setMilestoneView((current) => (sameMilestoneListView(current, opening.view) ? current : opening.view));
+    if (opening.from !== 'none') setOpenedFiltered(true);
+    if (opening.from === 'address') writeStoredMilestoneView(store, project.id, opening.view);
+    if (opening.from === 'stored') replaceSearch(searchWithMilestoneView(window.location.search, opening.view, staff));
+    // The rest is read again only when something other than the filters changed.
+    const pageSearch = `${fixtures}|${project.id}|${searchWithoutMilestoneFilters(searchKey)}`;
+    if (pageSearchRead.current === pageSearch) return;
+    pageSearchRead.current = pageSearch;
     setMilestoneLayout(params.get('layout') === 'board' ? 'board' : 'list');
     setDoneExpanded(params.get('done') === 'open');
     // `?milestone=<id>` (a warehaus://milestone link from the Mac app) opens that milestone.
@@ -251,7 +291,7 @@ export function ProjectRoadmap({
         document.querySelector('[data-testid^="milestone-m-"]')?.scrollIntoView({ block: 'start' });
       }, 50);
     }
-  }, [fixtures, searchKey, project.id]);
+  }, [fixtures, searchKey, project.id, staff]);
   const previewMilestoneId = fixtures ? fixtureRows[0]?.id ?? null : null;
   useEffect(() => {
     if ((!detailsPreview && !loopPreview) || !previewMilestoneId) return;
@@ -306,14 +346,53 @@ export function ProjectRoadmap({
   const attachedIds = attachedMilestoneTaskIds([...milestones, ...archivedMilestones]);
   const needingMilestone = tasksNeedingMilestone(tasks, projectMilestoneIds, attachedIds);
   const needCount = hideNeedBanner ? 0 : needingMilestone.length;
-  const milestoneGroups = groupMilestones(milestones, staff);
+  // Needs you is an open Ask on the viewer. The approval Ask is the one the loaded list can show.
+  const askEmail = viewerEmail ?? auth.authUser?.email ?? null;
+  const filterRows = staff
+    ? milestones.map((milestone) => ({
+        ...milestone,
+        needsYou: approvalNeedsYou({ milestone, viewerEmail: askEmail }) != null,
+      }))
+    : milestones;
+  const filters = milestoneFilterResult<MilestoneRoadmapView>(filterRows, milestoneView, staff);
+  // A pick: hold it, keep it for the session, and write it to the address. Replace, so Back still leaves the project.
+  const keepMilestoneView = (next: MilestoneListView) => {
+    setMilestoneView(next);
+    setOpenedFiltered(false);
+    writeStoredMilestoneView(sessionMilestoneViewStore(), project.id, next);
+    replaceSearch(searchWithMilestoneView(window.location.search, next, staff));
+  };
+  // Filters that came with the page (a shared link, a reload, a return visit) open Done the same way a pick does.
+  const doneOpen = doneExpanded || (openedFiltered && filters.onlyShipped);
+  const changeMilestoneView: MilestoneListViewChange = (update) => {
+    const next = update(milestoneView);
+    // Results only in Done would sit behind its collapsed row. A Done that is open stays open.
+    if (doneOpen || milestoneFilterResult(filterRows, next, staff).onlyShipped) setDoneExpanded(true);
+    keepMilestoneView(next);
+  };
+  const clearMilestoneView = () => {
+    if (doneOpen) setDoneExpanded(true);
+    keepMilestoneView(emptyMilestoneListView());
+  };
+  const toggleDone = () => {
+    setOpenedFiltered(false);
+    setDoneExpanded(!doneOpen);
+  };
+  // Only the groups, their counts and the board read the matches. The rest of the page reads `milestones`.
+  const milestoneGroups = groupMilestones(filters.matches, staff);
   const openGroups = milestoneGroups.filter((group) => group.id !== 'shipped');
   const shippedGroup = milestoneGroups.find((group) => group.id === 'shipped');
   const boardLayout = milestoneLayout === 'board';
-  const stackBoard = boardLayout && phone && doneExpanded;
+  const stackBoard = boardLayout && phone && doneOpen;
   const projectActivity = activity.filter((item) => item.projectId === project.id);
   const loading = !fixtures && (live ? query.loading : true) && milestones.length === 0;
   const failed = !fixtures && live && query.error != null;
+  const archivedChip =
+    staff && archivedCount > 0 ? (
+      <ArchivedChip active={archivedView} count={archivedCount} onClick={() => setShowArchived((shown) => !shown)} />
+    ) : null;
+  // No bar while loading, on a load error with no list, with no milestones, or in the Archived view.
+  const showFilterBar = !loading && milestones.length > 0 && !archivedView;
 
   const patchMilestone = (id: string, patch: FixturePatch) => {
     setPatches((current) => {
@@ -651,9 +730,19 @@ export function ProjectRoadmap({
                 />
               ) : null}
 
-              {staff && archivedCount > 0 ? (
-                <ArchivedChip active={archivedView} count={archivedCount} onClick={() => setShowArchived((shown) => !shown)} />
-              ) : null}
+              {showFilterBar ? (
+                <MilestoneFilterBar
+                  view={filters.shown}
+                  options={filters.options}
+                  staff={staff}
+                  onChange={changeMilestoneView}
+                  onClear={clearMilestoneView}
+                >
+                  {archivedChip}
+                </MilestoneFilterBar>
+              ) : (
+                archivedChip
+              )}
 
               {archivedView ? (
                 <section data-testid="archived-view" className="flex flex-col gap-4">
@@ -682,6 +771,8 @@ export function ProjectRoadmap({
                     </ul>
                   ) : null}
                 </section>
+              ) : filters.noMatches ? (
+                <MilestoneFiltersEmpty onClear={clearMilestoneView} />
               ) : boardLayout ? (
                 <div
                   data-testid="milestone-board"
@@ -694,9 +785,9 @@ export function ProjectRoadmap({
                     <DoneGroup
                       count={shippedGroup.milestones.length}
                       layout="board"
-                      expanded={doneExpanded}
+                      expanded={doneOpen}
                       stacked={stackBoard}
-                      onToggle={() => setDoneExpanded((open) => !open)}
+                      onToggle={toggleDone}
                     >
                       {shippedGroup.milestones.map((milestone) => milestoneCard(milestone, true))}
                     </DoneGroup>
@@ -722,8 +813,8 @@ export function ProjectRoadmap({
                     <DoneGroup
                       count={shippedGroup.milestones.length}
                       layout="list"
-                      expanded={doneExpanded}
-                      onToggle={() => setDoneExpanded((open) => !open)}
+                      expanded={doneOpen}
+                      onToggle={toggleDone}
                     >
                       {shippedGroup.milestones.map((milestone) => milestoneCard(milestone))}
                     </DoneGroup>

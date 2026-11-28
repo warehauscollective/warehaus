@@ -1,17 +1,23 @@
 'use client';
 
-import {
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-  type RefObject,
-} from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import {
+  AppliedFilterChips,
+  FilterCount,
+  FilterMenuFrame,
+  FilterSection,
+  ICON,
+  MONO,
+  MenuLayer,
+  OptionRow,
+  SheetFooter,
+  SheetHeader,
+  PopoverFoot,
+  toggled,
+  triggerStyle,
+  usePhone,
+} from './filterMenuParts';
 import {
   PROJECT_FILTER_LABEL,
   PROJECT_PROGRESS_BANDS,
@@ -59,45 +65,6 @@ export type ProjectListFilterMenuProps = {
   initialExpanded?: readonly ProjectFilterKey[];
 };
 
-const ICON = {
-  funnel: '/icons/filter-funnel.svg',
-  down: '/icons/filter-chev-down.svg',
-  right: '/icons/filter-chev-right.svg',
-  check: '/icons/filter-check.svg',
-  radioOn: '/icons/filter-radio-on.svg',
-  calendar: '/icons/filter-calendar.svg',
-  x: '/icons/filter-x.svg',
-};
-
-const MONO = 'var(--font-mono)';
-
-const plainButton: CSSProperties = {
-  background: 'transparent',
-  border: 0,
-  padding: 0,
-  margin: 0,
-  color: 'inherit',
-  font: 'inherit',
-  cursor: 'pointer',
-  textAlign: 'left',
-};
-
-/** Phone layout at 767 and under, the same break the page uses. `ready` is false until mounted. */
-function usePhone(): { phone: boolean; ready: boolean } {
-  const [state, setState] = useState({ phone: false, ready: false });
-  useEffect(() => {
-    const media = window.matchMedia('(max-width: 767px)');
-    const apply = () => setState({ phone: media.matches, ready: true });
-    apply();
-    media.addEventListener('change', apply);
-    return () => media.removeEventListener('change', apply);
-  }, []);
-  return state;
-}
-
-function toggled<T>(list: readonly T[], value: T): T[] {
-  return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
-}
 
 /**
  * The Filters and Sort controls with their menus. A popover under the control
@@ -153,25 +120,7 @@ export function ProjectListFilterMenu({
         >
           <TaskGlyph src={ICON.funnel} size={16} />
           <span>Filters</span>
-          {count > 0 ? (
-            <span
-              data-testid="project-filters-count"
-              className="inline-flex items-center justify-center"
-              style={{
-                minWidth: 18,
-                padding: '1px 6px',
-                borderRadius: 999,
-                background: 'var(--accent)',
-                color: 'var(--accent-fg)',
-                fontFamily: MONO,
-                fontSize: 11,
-                fontWeight: 500,
-              }}
-            >
-              <span className="sr-only">Filters set: </span>
-              {count}
-            </span>
-          ) : null}
+          <FilterCount count={count} testId="project-filters-count" />
         </button>
         {open === 'filters' ? (
           <MenuLayer
@@ -245,19 +194,6 @@ export function ProjectListFilterMenu({
   );
 }
 
-function triggerStyle(open: boolean): CSSProperties {
-  return {
-    minHeight: 35,
-    padding: '8px 12px',
-    borderRadius: 9,
-    border: '1px solid var(--border-2)',
-    background: open ? 'var(--surface-2)' : 'transparent',
-    color: 'var(--fg)',
-    fontSize: 13,
-    fontWeight: 500,
-    cursor: 'pointer',
-  };
-}
 
 /** The values that are set, one chip each, then Clear filters. Nothing when the list is unfiltered. */
 export function ProjectListAppliedFilters({
@@ -270,402 +206,20 @@ export function ProjectListAppliedFilters({
   if (!projectListViewIsFiltered(view, staff)) return null;
   const chips = projectFilterValueChips(view, staff, options);
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-2" data-testid="project-applied-filters">
-      {chips.map((chip) => (
-        <span
-          key={chip.id}
-          data-testid="project-filter-value"
-          className="inline-flex max-w-full items-center"
-          style={{
-            gap: 6,
-            padding: '6px 8px 6px 12px',
-            borderRadius: 999,
-            border: '1px solid var(--border-2)',
-            background: 'var(--surface-2)',
-            fontSize: 12,
-            fontWeight: 500,
-          }}
-        >
-          <span className="whitespace-nowrap" style={{ color: 'var(--muted)' }}>
-            {chip.field}
-          </span>
-          <span className="truncate" style={{ color: 'var(--fg)' }}>
-            {chip.value}
-          </span>
-          <button
-            type="button"
-            className="project-filter-focus inline-flex shrink-0 items-center justify-center"
-            aria-label={`Remove ${chip.field} ${chip.value}`}
-            onClick={() => onChange(chip.remove)}
-            style={{ ...plainButton, width: 18, height: 18, borderRadius: 999, color: 'var(--muted)' }}
-          >
-            <TaskGlyph src={ICON.x} size={16} />
-          </button>
-        </span>
-      ))}
-      <button
-        type="button"
-        className="project-filter-focus whitespace-nowrap"
-        data-testid="clear-filters-chip-row"
-        onClick={onClear}
-        style={{ ...plainButton, fontSize: 13, fontWeight: 500, color: 'var(--fg)', borderRadius: 4 }}
-      >
-        Clear filters
-      </button>
-    </div>
-  );
-}
-
-/**
- * Popover or bottom sheet. Moves focus in on open, keeps Tab inside, moves
- * with the arrow keys, and closes on Escape or a press outside.
- */
-function MenuLayer({
-  id,
-  label,
-  testId,
-  phone,
-  portal,
-  width,
-  anchor,
-  onClose,
-  children,
-}: {
-  id: string;
-  label: string;
-  testId: string;
-  phone: boolean;
-  /** False on the server and the first paint: the menu renders in place. */
-  portal: boolean;
-  width: number;
-  anchor: RefObject<HTMLButtonElement | null>;
-  onClose: (returnFocus: boolean) => void;
-  children: ReactNode;
-}) {
-  const panel = useRef<HTMLDivElement>(null);
-  const closeRef = useRef(onClose);
-  closeRef.current = onClose;
-  const [place, setPlace] = useState<{ top: number; right: number; maxHeight: number } | null>(null);
-
-  useLayoutEffect(() => {
-    if (!portal || phone) return;
-    const update = () => {
-      const rect = anchor.current?.getBoundingClientRect();
-      if (!rect) return;
-      const top = rect.bottom + 8;
-      setPlace({
-        top,
-        right: Math.max(8, window.innerWidth - rect.right),
-        maxHeight: Math.max(160, window.innerHeight - top - 16),
-      });
-    };
-    update();
-    window.addEventListener('resize', update);
-    window.addEventListener('scroll', update, true);
-    return () => {
-      window.removeEventListener('resize', update);
-      window.removeEventListener('scroll', update, true);
-    };
-  }, [portal, phone, anchor]);
-
-  useEffect(() => {
-    if (!portal) return;
-    const node = panel.current;
-    if (node && !node.contains(document.activeElement)) {
-      node.querySelector<HTMLElement>('[data-menu-item]')?.focus();
-    }
-  }, [portal, phone]);
-
-  useEffect(() => {
-    const items = () =>
-      [...(panel.current?.querySelectorAll<HTMLElement>('[data-menu-item]') ?? [])].filter(
-        (item) => !item.hasAttribute('disabled'),
-      );
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        closeRef.current(true);
-        return;
-      }
-      const node = panel.current;
-      const active = document.activeElement;
-      if (!node || !(active instanceof HTMLElement) || !node.contains(active)) return;
-      const list = items();
-      if (list.length === 0) return;
-      const index = list.indexOf(active);
-      if (event.key === 'Tab') {
-        if (event.shiftKey && index <= 0) {
-          event.preventDefault();
-          list[list.length - 1]?.focus();
-        } else if (!event.shiftKey && index === list.length - 1) {
-          event.preventDefault();
-          list[0]?.focus();
-        }
-        return;
-      }
-      // A date field uses the arrow keys for its own day, month and year.
-      if (active instanceof HTMLInputElement) return;
-      let next = -1;
-      if (event.key === 'ArrowDown') next = index + 1 >= list.length ? 0 : index + 1;
-      else if (event.key === 'ArrowUp') next = index <= 0 ? list.length - 1 : index - 1;
-      else if (event.key === 'Home') next = 0;
-      else if (event.key === 'End') next = list.length - 1;
-      if (next === -1) return;
-      event.preventDefault();
-      list[next]?.focus();
-    };
-    const onPress = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (panel.current?.contains(target) || anchor.current?.contains(target)) return;
-      closeRef.current(false);
-    };
-    document.addEventListener('keydown', onKey, true);
-    document.addEventListener('pointerdown', onPress, true);
-    return () => {
-      document.removeEventListener('keydown', onKey, true);
-      document.removeEventListener('pointerdown', onPress, true);
-    };
-  }, [anchor]);
-
-  const dialog = {
-    ref: panel,
-    id,
-    role: 'dialog' as const,
-    'aria-label': label,
-    'data-testid': testId,
-  };
-
-  if (portal && phone) {
-    return createPortal(
-      <div
-        className="ds-scope portal-modal-scrim"
-        data-sheet-layer="viewport"
-        data-testid="project-list-menu-scrim"
-        style={{ position: 'fixed', inset: 0, zIndex: 140, display: 'flex', alignItems: 'flex-end' }}
-      >
-        <div
-          {...dialog}
-          aria-modal
-          data-size="390"
-          className="flex w-full flex-col"
-          style={{
-            maxHeight: 'calc(100dvh - 72px)',
-            background: 'var(--surface)',
-            color: 'var(--fg)',
-            borderTop: '1px solid var(--border-2)',
-            borderRadius: '28px 28px 0 0',
-            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-            overflow: 'hidden',
-          }}
-        >
-          {children}
-        </div>
-      </div>,
-      document.body,
-    );
-  }
-
-  const popover: CSSProperties = {
-    width,
-    maxWidth: 'calc(100vw - 16px)',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 2,
-    padding: 6,
-    background: 'var(--surface)',
-    color: 'var(--fg)',
-    border: '1px solid var(--border-2)',
-    borderRadius: 18,
-    boxShadow: '0px 16px 40px 0px rgba(0,0,0,0.5)',
-    overflowY: 'auto',
-  };
-
-  if (!portal) {
-    return (
-      <div
-        {...dialog}
-        data-size="1440"
-        style={{ ...popover, position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 30, maxHeight: '70vh' }}
-      >
-        {children}
-      </div>
-    );
-  }
-
-  return createPortal(
-    <div className="ds-scope">
-      <div
-        {...dialog}
-        data-size="1440"
-        style={{
-          ...popover,
-          position: 'fixed',
-          zIndex: 70,
-          top: place?.top ?? 0,
-          right: place?.right ?? 0,
-          maxHeight: place?.maxHeight ?? '70vh',
-          visibility: place ? 'visible' : 'hidden',
-        }}
-      >
-        {children}
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-function rowPadding(phone: boolean): string {
-  return phone ? '14px 10px' : '10px';
-}
-
-function SheetHeader({ title, onClose }: { title: string; onClose: () => void }) {
-  return (
-    <>
-      <div aria-hidden className="flex shrink-0 justify-center" style={{ paddingTop: 8 }}>
-        <span style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border-2)' }} />
-      </div>
-      <div className="flex shrink-0 items-center" style={{ padding: '16px 24px' }}>
-        <p className="min-w-0 flex-1" style={{ margin: 0, fontSize: 20, lineHeight: '30px', fontWeight: 600 }}>
-          {title}
-        </p>
-        <button
-          type="button"
-          data-menu-item=""
-          className="project-filter-focus"
-          onClick={onClose}
-          style={{
-            ...plainButton,
-            padding: '12px 16px',
-            borderRadius: 9,
-            fontSize: 14,
-            fontWeight: 500,
-            color: 'var(--muted)',
-          }}
-        >
-          Close
-        </button>
-      </div>
-    </>
-  );
-}
-
-function SheetFooter({ hint, onDone, children }: { hint: string; onDone: () => void; children?: ReactNode }) {
-  return (
-    <div
-      className="flex shrink-0 items-center"
-      style={{ gap: 8, padding: '16px 24px 24px', borderTop: '1px solid var(--border)' }}
-    >
-      <p
-        className="min-w-0 flex-1"
-        style={{ margin: 0, fontFamily: MONO, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}
-      >
-        {hint}
-      </p>
-      {children}
-      <button
-        type="button"
-        data-menu-item=""
-        className="project-filter-focus shrink-0"
-        onClick={onDone}
-        style={{
-          ...plainButton,
-          padding: '12px 16px',
-          borderRadius: 9,
-          background: 'var(--accent)',
-          color: 'var(--accent-fg)',
-          fontSize: 14,
-          fontWeight: 500,
-        }}
-      >
-        Done
-      </button>
-    </div>
-  );
-}
-
-function PopoverFoot({ children }: { children: string }) {
-  return (
-    <p style={{ margin: 0, padding: '10px 10px 4px', fontFamily: MONO, fontSize: 11, color: 'var(--muted)' }}>
-      {children}
-    </p>
-  );
-}
-
-function Mark({ kind, on }: { kind: 'check' | 'radio'; on: boolean }) {
-  if (kind === 'radio') {
-    return on ? (
-      <span className="inline-flex shrink-0" style={{ color: 'var(--accent)' }}>
-        <TaskGlyph src={ICON.radioOn} size={16} />
-      </span>
-    ) : (
-      <span
-        aria-hidden
-        className="shrink-0"
-        style={{ width: 16, height: 16, boxSizing: 'border-box', borderRadius: 8, border: '1px solid var(--muted)' }}
-      />
-    );
-  }
-  return (
-    <span
-      aria-hidden
-      className="relative shrink-0"
-      style={{
-        width: 16,
-        height: 16,
-        boxSizing: 'border-box',
-        borderRadius: 4,
-        border: `1px solid ${on ? 'var(--accent)' : 'var(--muted)'}`,
-        background: on ? 'var(--accent)' : 'transparent',
+    <AppliedFilterChips
+      chips={chips}
+      testId="project-applied-filters"
+      chipTestId="project-filter-value"
+      clearTestId="clear-filters-chip-row"
+      onRemove={(id) => {
+        const chip = chips.find((item) => item.id === id);
+        if (chip) onChange(chip.remove);
       }}
-    >
-      {on ? (
-        <span className="absolute inline-flex" style={{ inset: -1, color: 'var(--accent-fg)' }}>
-          <TaskGlyph src={ICON.check} size={16} />
-        </span>
-      ) : null}
-    </span>
+      onClear={onClear}
+    />
   );
 }
 
-function OptionRow({
-  kind,
-  on,
-  label,
-  phone,
-  onPick,
-}: {
-  kind: 'check' | 'radio';
-  on: boolean;
-  label: string;
-  phone: boolean;
-  onPick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role={kind === 'check' ? 'checkbox' : 'radio'}
-      aria-checked={on}
-      data-menu-item=""
-      data-testid="project-filter-option"
-      className="project-filter-focus flex w-full shrink-0 items-center"
-      onClick={onPick}
-      style={{
-        ...plainButton,
-        gap: 10,
-        padding: rowPadding(phone),
-        borderRadius: 9,
-        background: on ? 'var(--surface-2)' : 'transparent',
-      }}
-    >
-      <Mark kind={kind} on={on} />
-      <span className="min-w-0 flex-1" style={{ fontSize: 14, lineHeight: '21px', overflowWrap: 'anywhere' }}>
-        {label}
-      </span>
-    </button>
-  );
-}
 
 function DateField({
   caption,
@@ -858,105 +412,34 @@ function FilterPanel({
     const pickOne = key === 'publish' || key === 'tasks' || key === 'updated';
     const regionId = `${baseId}-${key}`;
     return (
-      <div key={key} className="flex shrink-0 flex-col" style={{ gap: 2 }} data-testid="project-filter-section" data-filter={key}>
-        <button
-          type="button"
-          data-menu-item=""
-          className="project-filter-focus flex w-full items-center"
-          aria-expanded={isOpen}
-          aria-controls={isOpen ? regionId : undefined}
-          onClick={() => onToggle(key)}
-          style={{ ...plainButton, gap: 10, padding: rowPadding(phone), borderRadius: 9 }}
-        >
-          <span className="min-w-0 flex-1" style={{ fontSize: 14, lineHeight: '21px', fontWeight: 500 }}>
-            {PROJECT_FILTER_LABEL[key]}
-          </span>
-          <span
-            className="max-w-[60%] truncate"
-            data-testid="project-filter-summary"
-            style={{
-              fontFamily: MONO,
-              fontSize: 12,
-              lineHeight: '18px',
-              color: summary.set ? 'var(--fg)' : 'var(--muted)',
-            }}
-          >
-            {summary.text}
-          </span>
-          <span className="inline-flex" style={{ color: 'var(--muted)' }}>
-            <TaskGlyph src={isOpen ? ICON.down : ICON.right} size={14} />
-          </span>
-        </button>
-        {isOpen ? (
-          <div
-            id={regionId}
-            role={pickOne ? 'radiogroup' : 'group'}
-            aria-label={PROJECT_FILTER_LABEL[key]}
-            className="flex flex-col"
-            style={{ gap: 2 }}
-          >
-            {choices(key)}
-          </div>
-        ) : null}
-      </div>
+      <FilterSection
+        key={key}
+        regionId={regionId}
+        filter={key}
+        label={PROJECT_FILTER_LABEL[key]}
+        summary={summary}
+        open={isOpen}
+        phone={phone}
+        pickOne={pickOne}
+        onToggle={() => onToggle(key)}
+      >
+        {choices(key)}
+      </FilterSection>
     );
   });
 
-  if (phone) {
-    return (
-      <>
-        <SheetHeader title="Filters" onClose={onClose} />
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" style={{ gap: 2, padding: '8px 24px' }}>
-          {sections}
-        </div>
-        <SheetFooter hint="Filters apply as you pick" onDone={onClose}>
-          {filtered ? (
-            <button
-              type="button"
-              data-menu-item=""
-              data-testid="clear-filters-menu"
-              className="project-filter-focus shrink-0"
-              onClick={onClear}
-              style={{
-                ...plainButton,
-                padding: '12px 16px',
-                borderRadius: 9,
-                border: '1px solid var(--border-2)',
-                fontSize: 14,
-                fontWeight: 500,
-                color: 'var(--fg)',
-              }}
-            >
-              Clear filters
-            </button>
-          ) : null}
-        </SheetFooter>
-      </>
-    );
-  }
-
   return (
-    <>
-      <div className="flex shrink-0 items-center" style={{ padding: '8px 10px' }}>
-        <p className="min-w-0 flex-1" style={{ margin: 0, fontSize: 14, lineHeight: '21px', fontWeight: 500 }}>
-          Filters
-        </p>
-        {filtered ? (
-          <button
-            type="button"
-            data-menu-item=""
-            data-testid="clear-filters-menu"
-            className="project-filter-focus whitespace-nowrap"
-            onClick={onClear}
-            style={{ ...plainButton, fontSize: 13, fontWeight: 500, borderRadius: 4 }}
-          >
-            Clear filters
-          </button>
-        ) : null}
-      </div>
+    <FilterMenuFrame
+      phone={phone}
+      filtered={filtered}
+      foot="Filters apply as you pick. Saved to your account."
+      hint="Filters apply as you pick"
+      clearTestId="clear-filters-menu"
+      onClear={onClear}
+      onClose={onClose}
+    >
       {sections}
-      <PopoverFoot>Filters apply as you pick. Saved to your account.</PopoverFoot>
-    </>
+    </FilterMenuFrame>
   );
 }
 
