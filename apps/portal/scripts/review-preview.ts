@@ -1,18 +1,24 @@
 /**
  * Builds or deletes one warehaus-portal review preview.
- * Never prints tokens. Never targets production.
+ * Never prints tokens. The build always runs against shared dev
+ * graceful-mastiff-960 and never against production Convex. Production is
+ * only told the finished link, through its signed /review-preview route, so
+ * a real milestone's tile can show it (ADR-0009 decision 2).
  */
 import {
-  REVIEW_PREVIEW_PATH,
-  SHARED_DEV_SITE_HOST,
+  SHARED_DEV_CLOUD_HOST,
   VERCEL_PROJECT_ID,
   VERCEL_TEAM_ID,
   assertReviewConvexUrl,
   deleteVercelDeployment,
+  postReviewPreview,
   previewProtectionCoversPreviews,
   redactSecrets,
   reviewDeploymentBody,
   reviewPreviewCliShouldRun,
+  reviewPreviewStore,
+  type ReviewPreviewStore,
+  type ReviewPreviewStored,
 } from '../convex/_lib/reviewPreview';
 
 const secrets = [process.env.VERCEL_TOKEN, process.env.REVIEW_PREVIEW_SECRET, process.env.GITHUB_TOKEN].filter(
@@ -75,17 +81,8 @@ async function vercel(path: string, init?: RequestInit): Promise<Response> {
   });
 }
 
-async function postConvex(payload: Record<string, unknown>): Promise<{ ok?: boolean; reason?: string; previousDeploymentId?: string | null }> {
-  const secret = process.env.REVIEW_PREVIEW_SECRET;
-  if (!secret) fail('REVIEW_PREVIEW_SECRET is not set');
-  const response = await fetch(`https://${SHARED_DEV_SITE_HOST}${REVIEW_PREVIEW_PATH}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  const text = await response.text();
-  if (!response.ok) fail(`Review preview store returned ${response.status}: ${text.slice(0, 180)}`);
-  return JSON.parse(text) as { ok?: boolean; reason?: string; previousDeploymentId?: string | null };
+async function postConvex(store: ReviewPreviewStore, payload: Record<string, unknown>): Promise<ReviewPreviewStored> {
+  return postReviewPreview({ store, secret: process.env.REVIEW_PREVIEW_SECRET, payload });
 }
 
 async function assertProtected(): Promise<void> {
@@ -112,8 +109,11 @@ async function pollReady(id: string): Promise<string> {
 }
 
 async function build(): Promise<void> {
-  const convex = assertReviewConvexUrl('https://graceful-mastiff-960.convex.cloud');
+  const convex = assertReviewConvexUrl(`https://${SHARED_DEV_CLOUD_HOST}`);
   if (!convex.ok) fail(convex.reason);
+  const target = reviewPreviewStore(process.env.PREVIEW_STORE);
+  if (!target.ok) fail(target.reason);
+  const store = target.store;
   const prNumber = Number(process.env.PR_NUMBER);
   if (!Number.isInteger(prNumber) || prNumber < 1) fail('Pull request number is missing');
   const pull = await githubPull(String(prNumber));
@@ -135,19 +135,20 @@ async function build(): Promise<void> {
     convexSite: convex.site,
   });
   if (!deployment.ok) fail(deployment.reason);
-  await postConvex({
+  const started = await postConvex(store, {
     milestoneId,
     state: 'building',
     sha: pull.sha,
     prNumber,
     branch: pull.ref,
   });
+  if (started.ok === false) fail(started.reason ?? 'Could not store the preview');
   const created = await vercel(`/v13/deployments?teamId=${encodeURIComponent(VERCEL_TEAM_ID)}&forceNew=1`, {
     method: 'POST',
     body: JSON.stringify(deployment.body),
   });
   if (!created.ok) {
-    await postConvex({ milestoneId, state: 'failed', sha: pull.sha, prNumber, branch: pull.ref });
+    await postConvex(store, { milestoneId, state: 'failed', sha: pull.sha, prNumber, branch: pull.ref });
     fail(`Vercel create deployment returned ${created.status}`);
   }
   const createdBody = (await created.json()) as { id?: string };
@@ -157,10 +158,10 @@ async function build(): Promise<void> {
     url = await pollReady(createdBody.id);
   } catch (error) {
     await deleteVercelDeployment({ token: process.env.VERCEL_TOKEN, teamId: VERCEL_TEAM_ID, deploymentId: createdBody.id });
-    await postConvex({ milestoneId, state: 'failed', sha: pull.sha, prNumber, branch: pull.ref });
+    await postConvex(store, { milestoneId, state: 'failed', sha: pull.sha, prNumber, branch: pull.ref });
     fail(error instanceof Error ? error.message : 'Preview deployment failed');
   }
-  const stored = await postConvex({
+  const stored = await postConvex(store, {
     milestoneId,
     state: 'ready',
     url,
@@ -198,7 +199,8 @@ async function close(): Promise<void> {
     const result = await deleteVercelDeployment({ token: process.env.VERCEL_TOKEN, teamId: VERCEL_TEAM_ID, deploymentId: id });
     if (result.status === 'failed' || result.status === 'unconfigured') outcome = 'failed';
   }
-  await postConvex({ op: 'close', prNumber, outcome });
+  // Production refuses the close, so this is recorded on shared dev only.
+  await postConvex('dev', { op: 'close', prNumber, outcome });
   say(`Review preview close recorded for PR #${prNumber}`);
 }
 

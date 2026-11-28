@@ -44,7 +44,7 @@ Checked on 2026-11-21, read only, in the repository. Vercel's own project settin
 - `apps/portal/vercel.json` sets `git.deploymentEnabled` to `false`, so a push does not build the portal on Vercel.
 - `apps/portal/scripts/vercel-ignore-build.mjs` skips every build unless `REVIEW_PREVIEW=1`, which only the review-preview workflow sets.
 - That workflow's build environment comes from `reviewDeploymentBody` in `apps/portal/convex/_lib/reviewPreview.ts`. It sets `NEXT_PUBLIC_CONVEX_URL` from `assertReviewConvexUrl`, which refuses any URL containing `unique-turtle-383` and any host other than shared dev `graceful-mastiff-960`.
-- The route that stores a review preview, `reviewPreviewHttp`, returns 403 unless the deployment it runs on passes the same check.
+- The route that stores a review preview, `reviewPreviewHttp`, returns 403 unless the deployment it runs on passes the same check. Since ADR-0009 decision 2 it also answers on production, for the preview link only: the build state and URL of the milestone's current iteration. The local preview and the close stay shared dev only. The workflow script `apps/portal/scripts/review-preview.ts` posts that link to the production route by default, and to shared dev only when shared dev dispatched the run with `store: dev`. The build's Convex URL is still shared dev in both cases.
 
 So a portal preview built through the repository's own path can only point at shared dev. What this does not cover: environment variables set by hand in the Vercel dashboard for the Preview environment. A build started outside the workflow would use those.
 

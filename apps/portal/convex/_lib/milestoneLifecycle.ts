@@ -17,17 +17,20 @@
  * Effects:
  * - Entering Ready to Ship from an earlier status: store the local preview
  *   link if missing, close the old approval Ask, write a new approval Ask
- *   waiting on Peter, add a feed line. Coming back from Shipped is a reopen: none of it.
+ *   waiting on Peter, add a feed line, and start the Vercel branch preview
+ *   once per iteration. Coming back from Shipped is a reopen: none of it.
  * - Leaving Ready to Ship: close the open approval Ask.
  * - Entering Planning: queue planning. Leaving it: drop a queued plan.
  */
 
+import { internal } from '../_generated/api';
 import { syncDesignAsk } from './designGateStore';
 import type { Doc } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { queuePlanning } from '../planningQueue';
 import { closeAsksOnMilestone, openAsk } from './askStore';
 import { LOCAL_PREVIEW_DEFAULT, approvalNote, eventType, milestoneBranch } from './agentRun';
+import { parsePullRequestRef } from './githubPull';
 import { detailActivitySummary } from './milestoneDetails';
 import { currentIteration } from './milestoneReview';
 import { writeMilestoneActivity } from './milestones';
@@ -94,6 +97,28 @@ function openCountLine(open: number): string | null {
   return `Heads up: ${open === 1 ? '1 task is' : `${open} tasks are`} still open.`;
 }
 
+/**
+ * Start the Vercel branch preview for this iteration (ADR-0009 decision 2).
+ * Every path into Ready to Ship comes through here, so the runner's
+ * ready-for-review label is no longer the only start. Once per iteration: a
+ * second entry in the same iteration starts nothing, and Retry covers a failed
+ * build. Nothing is written or scheduled when the milestone has no pull
+ * request in this repository, or while the dispatch token is not set.
+ */
+async function startReviewPreview(ctx: MutationCtx, milestone: Doc<'milestones'>, input: StatusChangeInput) {
+  const iteration = currentIteration(milestone.iteration);
+  if (milestone.previewDispatchIteration === iteration) return;
+  const prNumber =
+    parsePullRequestRef(input.prUrl ?? milestone.prUrl ?? '')?.number ?? milestone.previewPrNumber ?? null;
+  if (!prNumber) return;
+  if (!process.env.REVIEW_PREVIEW_GITHUB_TOKEN?.trim()) return;
+  await ctx.db.patch(milestone._id, { previewDispatchIteration: iteration });
+  await ctx.scheduler.runAfter(0, internal.milestones.startReviewPreview, {
+    milestoneId: milestone._id,
+    prNumber,
+  });
+}
+
 async function enterReadyToShip(ctx: MutationCtx, milestone: Doc<'milestones'>, input: StatusChangeInput) {
   const localPreviewUrl = milestone.localPreviewUrl ?? LOCAL_PREVIEW_DEFAULT;
   if (!milestone.localPreviewUrl) await ctx.db.patch(milestone._id, { localPreviewUrl });
@@ -123,6 +148,7 @@ async function enterReadyToShip(ctx: MutationCtx, milestone: Doc<'milestones'>, 
     summary: input.readyLine ?? `Moved to Ready to Ship by ${input.actorName}`,
     at: input.at + 1,
   });
+  await startReviewPreview(ctx, milestone, input);
 }
 
 /**

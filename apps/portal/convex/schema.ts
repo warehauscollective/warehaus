@@ -340,6 +340,11 @@ export default defineSchema({
     previewBuild: v.optional(v.union(v.literal('building'), v.literal('failed'))),
     previewBuildAttempt: v.optional(v.number()),
     previewBuildAt: v.optional(v.number()),
+    /**
+     * Iteration whose Vercel preview the Portal already started on entering
+     * Ready to Ship. Keeps a second entry in the same iteration from starting another.
+     */
+    previewDispatchIteration: v.optional(v.number()),
     /** After approve, removing the preview. `removed` means the Vercel build is gone. Absent until a delete is attempted. */
     previewDelete: v.optional(v.union(v.literal('removing'), v.literal('failed'), v.literal('removed'))),
     previewDeleteAttempt: v.optional(v.number()),

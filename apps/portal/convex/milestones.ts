@@ -15,7 +15,7 @@ import {
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
-import type { MutationCtx, QueryCtx } from './_generated/server';
+import type { ActionCtx, MutationCtx, QueryCtx } from './_generated/server';
 import { httpAction, internalAction, internalMutation, internalQuery } from './_generated/server';
 import { internal } from './_generated/api';
 import { PortalAuthError } from './_lib/identity';
@@ -133,7 +133,13 @@ import {
   PREVIEW_READY_ACTIVITY,
   VERCEL_TEAM_ID,
   assertReviewConvexUrl,
+  PREVIEW_ROUTE_LINK_ONLY,
+  PREVIEW_ROUTE_WRONG_DEPLOYMENT,
+  previewDispatchStore,
   authorizeReviewPreview,
+  isPreviewLinkWrite,
+  previewIterationDecision,
+  reviewPreviewRouteScope,
   deleteVercelDeployment,
   previewDeleteAfterFailure,
   previewDeletedActivity,
@@ -1722,6 +1728,8 @@ export const setReviewPreview = internalMutation({
   handler: async (ctx, args) => {
     const milestone = await ctx.db.get(args.milestoneId);
     if (!milestone) return { ok: false as const, reason: 'Milestone not found' };
+    const fresh = previewIterationDecision({ given: args.iteration, current: currentIteration(milestone.iteration) });
+    if (!fresh.ok) return { ok: false as const, reason: fresh.reason };
     const result = reviewPreviewSetPatch({
       current: previewRecord(milestone),
       next: {
@@ -1843,6 +1851,7 @@ async function applyPreviewOutcome(
     previewBuild: undefined,
     previewBuildAttempt: undefined,
     previewBuildAt: undefined,
+    previewDispatchIteration: undefined,
     previewDelete: undefined,
     previewDeleteAttempt: undefined,
     previewDeleteAt: undefined,
@@ -1962,32 +1971,57 @@ export const dispatchReviewPreview = internalAction({
   handler: async (ctx, args) => {
     const cloud = assertReviewConvexUrl(process.env.CONVEX_CLOUD_URL);
     if (!cloud.ok) return { ok: false as const, reason: cloud.reason };
-    const token = process.env.REVIEW_PREVIEW_GITHUB_TOKEN?.trim();
-    if (!token) return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
-    const response = await fetch(
-      'https://api.github.com/repos/warehauscollective/warehaus/actions/workflows/portal-review-preview.yml/dispatches',
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ref: 'main',
-          inputs: { pr_number: String(args.prNumber), milestone_id: args.milestoneId },
-        }),
-      },
-    );
-    if (response.status === 204) return { ok: true as const };
-    await ctx.runMutation(internal.milestones.setReviewPreview, {
-      milestoneId: args.milestoneId,
-      state: 'failed',
-      prNumber: args.prNumber,
-    });
-    return { ok: false as const, reason: 'Retry did not start' };
+    return await sendPreviewDispatch(ctx, args, 'Retry did not start');
   },
+});
+
+/** Ask GitHub to run portal-review-preview for one pull request. A refusal marks the preview failed. */
+async function sendPreviewDispatch(
+  ctx: ActionCtx,
+  args: { prNumber: number; milestoneId: Id<'milestones'> },
+  refused: string,
+) {
+  const token = process.env.REVIEW_PREVIEW_GITHUB_TOKEN?.trim();
+  if (!token) return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
+  const response = await fetch(
+    'https://api.github.com/repos/warehauscollective/warehaus/actions/workflows/portal-review-preview.yml/dispatches',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        ref: 'main',
+        // Shared dev names itself so the link comes back to its own milestone. Production is the workflow's default.
+        inputs: {
+          pr_number: String(args.prNumber),
+          milestone_id: args.milestoneId,
+          ...previewDispatchStore(process.env.CONVEX_CLOUD_URL),
+        },
+      }),
+    },
+  );
+  if (response.status === 204) return { ok: true as const };
+  await ctx.runMutation(internal.milestones.setReviewPreview, {
+    milestoneId: args.milestoneId,
+    state: 'failed',
+    prNumber: args.prNumber,
+  });
+  return { ok: false as const, reason: refused };
+}
+
+/**
+ * The start scheduled on entering Ready to Ship (ADR-0009 decision 2). Unlike a
+ * retry it also runs on production, where real milestones live. It only asks
+ * GitHub to run the workflow: the workflow builds against shared dev
+ * graceful-mastiff-960 and never production Convex.
+ */
+export const startReviewPreview = internalAction({
+  args: { prNumber: v.number(), milestoneId: v.id('milestones') },
+  handler: async (ctx, args) => sendPreviewDispatch(ctx, args, 'Preview did not start'),
 });
 
 /**
@@ -2063,9 +2097,16 @@ export const setLocalPreview = internalMutation({
   },
 });
 
+/**
+ * Stores preview state sent by the portal-review-preview workflow, signed with
+ * REVIEW_PREVIEW_SECRET. Shared dev takes every write. Production takes the
+ * preview link only, for the milestone's current iteration, so the tile of a
+ * real milestone can show it (ADR-0009 decision 2). The preview itself still
+ * runs against shared dev.
+ */
 export const reviewPreviewHttp = httpAction(async (ctx, request) => {
-  const cloud = assertReviewConvexUrl(process.env.CONVEX_CLOUD_URL);
-  if (!cloud.ok) return new Response('Review previews run on shared dev only', { status: 403 });
+  const scope = reviewPreviewRouteScope(process.env.CONVEX_CLOUD_URL);
+  if (!scope) return new Response(PREVIEW_ROUTE_WRONG_DEPLOYMENT, { status: 403 });
   const auth = authorizeReviewPreview({
     configuredSecret: process.env.REVIEW_PREVIEW_SECRET,
     authorizationHeader: request.headers.get('authorization'),
@@ -2092,6 +2133,8 @@ export const reviewPreviewHttp = httpAction(async (ctx, request) => {
   } catch {
     return new Response('Invalid JSON', { status: 400 });
   }
+  if (!body || typeof body !== 'object') return new Response('Invalid JSON', { status: 400 });
+  if (scope === 'link' && !isPreviewLinkWrite(body)) return new Response(PREVIEW_ROUTE_LINK_ONLY, { status: 403 });
   if (local.op === 'local') {
     if (!local.milestoneId && !local.branch) return new Response('Milestone id or branch is missing', { status: 400 });
     const result = await ctx.runMutation(internal.milestones.setLocalPreview, {

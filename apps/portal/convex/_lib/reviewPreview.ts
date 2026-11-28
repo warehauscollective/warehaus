@@ -1,6 +1,8 @@
 /**
  * Review-time Vercel previews for one milestone.
- * Shared dev graceful-mastiff-960 only. Production unique-turtle-383 is refused.
+ * The preview always builds against shared dev graceful-mastiff-960, never
+ * production unique-turtle-383. Production only stores the preview link on its
+ * own milestone (ADR-0009 decision 2); see `reviewPreviewRouteScope`.
  * Preview state stays on the milestone. Clients never receive it.
  */
 
@@ -13,6 +15,7 @@ export const SHARED_DEV_DEPLOYMENT = 'graceful-mastiff-960';
 export const SHARED_DEV_CLOUD_HOST = 'graceful-mastiff-960.convex.cloud';
 export const SHARED_DEV_SITE_HOST = 'graceful-mastiff-960.convex.site';
 export const PRODUCTION_DEPLOYMENT = 'unique-turtle-383';
+export const PRODUCTION_SITE_HOST = 'unique-turtle-383.convex.site';
 export const PRODUCTION_APP_HOST = 'warehaus-portal.vercel.app';
 export const VERCEL_TEAM_ID = 'team_gk8AwUegrHijeRwyTvHBsWhO';
 export const VERCEL_PROJECT_ID = 'prj_5QsXPIEeRT2NCFovhsV3wqMt3bW5';
@@ -109,6 +112,120 @@ export function assertReviewConvexUrl(
     cloud: `https://${SHARED_DEV_CLOUD_HOST}`,
     site: `https://${SHARED_DEV_SITE_HOST}`,
   };
+}
+
+/** What the `/review-preview` route accepts on the deployment it runs on. */
+export type ReviewPreviewRouteScope = 'all' | 'link';
+
+export const PREVIEW_ROUTE_WRONG_DEPLOYMENT = 'Review previews are stored on shared dev and production only';
+export const PREVIEW_ROUTE_LINK_ONLY = 'Production stores the preview link only';
+
+/**
+ * Shared dev takes every write: the link, the local preview and the close.
+ * Production takes the link only, so a real milestone's tile can show it
+ * (ADR-0009 decision 2). Any other deployment is refused.
+ */
+export function reviewPreviewRouteScope(cloudUrl: string | undefined | null): ReviewPreviewRouteScope | null {
+  if (assertReviewConvexUrl(cloudUrl).ok) return 'all';
+  let parsed: URL;
+  try {
+    parsed = new URL(cloudUrl?.trim() ?? '');
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:' || parsed.host !== `${PRODUCTION_DEPLOYMENT}.convex.cloud`) return null;
+  return 'link';
+}
+
+/** The deployment whose milestone a workflow run reports to. The build itself is always shared dev. */
+export type ReviewPreviewStore = 'production' | 'dev';
+
+/**
+ * Where the workflow stores what it built. Real milestones live on production,
+ * so that is the answer when nothing is given (the ready-for-review label and a
+ * start from production). Shared dev names itself in its dispatch.
+ */
+export function reviewPreviewStore(
+  given: string | null | undefined,
+): { ok: true; store: ReviewPreviewStore } | { ok: false; reason: string } {
+  const value = given?.trim() ?? '';
+  if (value === '' || value === 'production') return { ok: true, store: 'production' };
+  if (value === 'dev') return { ok: true, store: 'dev' };
+  return { ok: false, reason: 'Preview store must be production or dev' };
+}
+
+/** The `store` input a deployment sends with its dispatch. Only shared dev names itself. */
+export function previewDispatchStore(cloudUrl: string | undefined | null): { store: 'dev' } | Record<string, never> {
+  return assertReviewConvexUrl(cloudUrl).ok ? { store: 'dev' } : {};
+}
+
+/**
+ * The route a workflow write goes to. The link (building, ready, failed) goes
+ * to the milestone's own deployment. Every other write stays on shared dev,
+ * because production refuses it.
+ */
+export function reviewPreviewStoreUrl(store: ReviewPreviewStore, payload: { op?: unknown; state?: unknown }): string {
+  const host = store === 'production' && isPreviewLinkWrite(payload) ? PRODUCTION_SITE_HOST : SHARED_DEV_SITE_HOST;
+  return `https://${host}${REVIEW_PREVIEW_PATH}`;
+}
+
+export type ReviewPreviewStored = { ok?: boolean; reason?: string; previousDeploymentId?: string | null };
+
+/**
+ * Sends one signed write to the `/review-preview` route. A 400 with a reason
+ * is the route refusing the write (stale iteration, unknown milestone): it
+ * comes back as `ok: false` so the caller can delete what it built. Any other
+ * failure throws. The message never carries the secret.
+ */
+export async function postReviewPreview(input: {
+  store: ReviewPreviewStore;
+  secret: string | undefined;
+  payload: Record<string, unknown>;
+  fetchImpl?: typeof fetch;
+}): Promise<ReviewPreviewStored> {
+  const secret = input.secret?.trim();
+  if (!secret) throw new Error('REVIEW_PREVIEW_SECRET is not set');
+  const fetchImpl = input.fetchImpl ?? fetch;
+  const response = await fetchImpl(reviewPreviewStoreUrl(input.store, input.payload), {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(input.payload),
+  });
+  const text = await response.text();
+  if (response.ok || response.status === 400) {
+    try {
+      const body = JSON.parse(text) as ReviewPreviewStored | null;
+      if (body && typeof body === 'object') {
+        if (response.ok) return body;
+        if (body.ok === false) return { ok: false, reason: body.reason ?? 'Review preview store refused the write' };
+      }
+    } catch {
+      // Not JSON: reported below with the status.
+    }
+  }
+  throw new Error(`Review preview store returned ${response.status}: ${text.slice(0, 180)}`);
+}
+
+/**
+ * A link write is the build of the Vercel preview: building, ready with its
+ * URL, or failed. It has no `op`. The local preview, the close and `removed`
+ * are not link writes.
+ */
+export function isPreviewLinkWrite(body: { op?: unknown; state?: unknown }): boolean {
+  if (body.op != null) return false;
+  return body.state === 'building' || body.state === 'ready' || body.state === 'failed';
+}
+
+/**
+ * A preview is stored for the milestone's current iteration. A build that
+ * names another iteration is stale and is refused. No iteration means current.
+ */
+export function previewIterationDecision(input: {
+  given: number | null | undefined;
+  current: number;
+}): { ok: true } | { ok: false; reason: string } {
+  if (input.given == null || input.given === input.current) return { ok: true };
+  return { ok: false, reason: `Preview is for iteration ${input.given}; the milestone is on iteration ${input.current}` };
 }
 
 export function assertPreviewAppUrl(
