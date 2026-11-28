@@ -297,15 +297,9 @@ describe('peter and delete retry', () => {
     assert.ok(retry.indexOf('retryActorAllowed') < retry.indexOf('ctx.db.patch'));
   });
 
-  it('re-checks the shared dev host before a retry dispatch', () => {
-    const milestones = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
-    const dispatch = milestones.slice(
-      milestones.indexOf('export const dispatchReviewPreview'),
-      milestones.indexOf('export const retryReviewPreview'),
-    );
+  // The retry dispatch's shared-dev check is tested through its handler in previewLinkRoute.test.ts.
+  it('keeps the review preview off the roadmap helpers', () => {
     const preview = readFileSync(new URL('./reviewPreview.ts', import.meta.url), 'utf8');
-    assert.match(dispatch, /assertReviewConvexUrl\(process\.env\.CONVEX_CLOUD_URL\)/);
-    assert.ok(dispatch.indexOf('assertReviewConvexUrl') < dispatch.indexOf('fetch('));
     assert.equal(preview.includes('reviewPreviewOnRoadmap'), false);
   });
 

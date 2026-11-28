@@ -14,7 +14,7 @@ import { describe, it } from 'node:test';
 import { claimNext, completeTask, recordEvent, releaseStuckRuns, reportBuild, retryBlocked, writePlannedTasks } from '../agent';
 import { AGENT_DRIVER_LOCKED, setAgentDriver } from '../projects';
 import { PortalAuthError } from './identity';
-import { addTask, listForClientProject, reviewForApi, setStatus, startReviewPreview } from '../milestones';
+import { addTask, advance, listForClientProject, reviewForApi, setStatus, startReviewPreview } from '../milestones';
 import { CHAT_CHANGES_NOTE } from './milestoneReview';
 import { createMilestone, updateMilestone } from '../portalApi';
 import { applyInbound } from '../sync/inbound';
@@ -819,6 +819,47 @@ describe('status change from the staff API and a merge', () => {
     } finally {
       globalThis.fetch = realFetch;
     }
+  });
+
+  it('the runner, the play button, the status menu and the staff API each start the preview once', async () => {
+    const PR = `https://github.com/${REPO}/pull/231`;
+    const started = [{ milestoneId: '', prNumber: 231 }];
+    const paths: Record<string, (run: ReturnType<typeof seed>) => Promise<unknown>> = {
+      runner: async (run) => {
+        const mine = await claim(run.t);
+        assert.equal(mine.kind, 'task');
+        // The runner names the pull request with the completion; the milestone had none before.
+        await run.t.call(completeTask, { runnerId: RUNNER, runId: mine.runId, status: 'done', commitSha: SHA, prUrl: PR });
+      },
+      play: (run) => run.t.call(advance, { milestoneId: run.milestoneId, expectedStatus: 'Building' }, { as: 'staff' }),
+      menu: (run) => run.t.call(setStatus, { milestoneId: run.milestoneId, status: 'Ready to Ship' }, { as: 'staff' }),
+      api: (run) => update(run, 'k1', 'Ready to Ship'),
+    };
+    await withDispatchToken('test-token', async () => {
+      for (const [path, enter] of Object.entries(paths)) {
+        const run = seed('Building', [path === 'runner' ? { status: 'To do' } : { status: 'Done', isDone: true }]);
+        if (path !== 'runner') await run.t.db.patch(run.milestoneId, { prUrl: PR });
+        await enter(run);
+        assert.equal(run.milestone().status, 'Ready to Ship', path);
+        assert.deepEqual(
+          previewStarts(run).map((call) => call.args),
+          started.map((call) => ({ ...call, milestoneId: run.milestoneId })),
+          path,
+        );
+        assert.equal(run.milestone().previewDispatchIteration, 1, path);
+      }
+    });
+  });
+
+  it('a reopen from Shipped starts no preview', async () => {
+    await withDispatchToken('test-token', async () => {
+      const run = seed('Shipped', [{ status: 'Done', isDone: true }]);
+      await run.t.db.patch(run.milestoneId, { prUrl: `https://github.com/${REPO}/pull/231` });
+      await run.t.call(setStatus, { milestoneId: run.milestoneId, status: 'Ready to Ship' }, { as: 'staff' });
+      assert.equal(run.milestone().status, 'Ready to Ship');
+      assert.equal(previewStarts(run).length, 0);
+      assert.equal(run.milestone().previewDispatchIteration, undefined);
+    });
   });
 
   it('a staff API Shipped with an open task is refused and writes nothing', async () => {

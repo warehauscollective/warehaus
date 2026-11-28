@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { reviewPreviewHttp, setReviewPreview } from '../milestones';
+import { dispatchReviewPreview, reviewPreviewHttp, setReviewPreview, startReviewPreview } from '../milestones';
 import { memoryCtx, type MemoryCtx } from './memoryCtx.testkit';
 import {
   PREVIEW_ROUTE_LINK_ONLY,
@@ -316,5 +316,64 @@ describe('where the workflow stores the link', () => {
     assert.equal(script.includes('unique-turtle-383'), false);
     assert.equal(/PRODUCTION_(DEPLOYMENT|SITE_HOST|APP_HOST)/.test(script), false);
     assert.equal(/process\.env\.(NEXT_PUBLIC_)?CONVEX_(CLOUD_|SITE_)?URL/.test(script), false);
+  });
+});
+
+describe('shared-dev guard on the dispatch', () => {
+  const before = { cloud: process.env.CONVEX_CLOUD_URL, token: process.env.REVIEW_PREVIEW_GITHUB_TOKEN };
+  const realFetch = globalThis.fetch;
+  let requests: Array<{ url: string; body: { ref?: string; inputs?: Record<string, string> } }> = [];
+
+  beforeEach(() => {
+    requests = [];
+    process.env.REVIEW_PREVIEW_GITHUB_TOKEN = 'test-token';
+    globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
+      requests.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    if (before.cloud === undefined) delete process.env.CONVEX_CLOUD_URL;
+    else process.env.CONVEX_CLOUD_URL = before.cloud;
+    if (before.token === undefined) delete process.env.REVIEW_PREVIEW_GITHUB_TOKEN;
+    else process.env.REVIEW_PREVIEW_GITHUB_TOKEN = before.token;
+  });
+
+  it('a retry dispatch runs on shared dev only and asks GitHub for nothing anywhere else', async () => {
+    const t = memoryCtx();
+    const { milestoneId } = seedMilestoneWorld(t, { status: 'Ready to Ship' });
+    const args = { milestoneId, prNumber: 231 };
+    for (const cloud of [PRODUCTION, 'https://other-animal-1.convex.cloud', undefined]) {
+      if (cloud === undefined) delete process.env.CONVEX_CLOUD_URL;
+      else process.env.CONVEX_CLOUD_URL = cloud;
+      const refused = await t.call<{ ok: boolean; reason?: string }>(dispatchReviewPreview, args);
+      assert.equal(refused.ok, false, String(cloud));
+    }
+    assert.equal(requests.length, 0);
+    assert.equal(t.runs.length, 0);
+
+    process.env.CONVEX_CLOUD_URL = SHARED_DEV;
+    assert.deepEqual(await t.call(dispatchReviewPreview, args), { ok: true });
+    assert.deepEqual(requests[0]?.body, { ref: 'main', inputs: { pr_number: '231', milestone_id: milestoneId, store: 'dev' } });
+  });
+
+  it('the start from production sends only the pull request and the milestone, never a Convex URL', async () => {
+    process.env.CONVEX_CLOUD_URL = PRODUCTION;
+    const t = memoryCtx();
+    const { milestoneId } = seedMilestoneWorld(t, { status: 'Ready to Ship' });
+    assert.deepEqual(await t.call(startReviewPreview, { milestoneId, prNumber: 231 }), { ok: true });
+    assert.equal(requests.length, 1);
+    assert.match(requests[0]!.url, /^https:\/\/api\.github\.com\/repos\/warehauscollective\/warehaus\/actions\/workflows\/portal-review-preview\.yml\/dispatches$/);
+    // The workflow file and script come from main, and the build target is not an input: it is fixed to shared dev in the script.
+    assert.deepEqual(requests[0]!.body, { ref: 'main', inputs: { pr_number: '231', milestone_id: milestoneId } });
+    assert.equal(JSON.stringify(requests[0]!.body).includes('unique-turtle-383'), false);
+  });
+
+  it('the workflow takes no Convex URL as an input', () => {
+    const workflow = readFileSync(new URL('../../../../.github/workflows/portal-review-preview.yml', import.meta.url), 'utf8');
+    assert.equal(/convex[_-]?(url|site|deployment)/i.test(workflow), false);
+    assert.equal(workflow.includes('unique-turtle-383'), false);
   });
 });
