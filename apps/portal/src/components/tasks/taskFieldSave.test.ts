@@ -9,6 +9,7 @@ import {
   beginFieldSave,
   finishFieldSave,
   idleField,
+  releaseFieldDraft,
   retryFieldSave,
 } from './taskFieldSave';
 
@@ -77,5 +78,27 @@ describe('task field save', () => {
     assert.match(source, /outline-\[var\(--info\)\]/);
     assert.equal(source.includes("?? 'Could not save'"), false);
     assert.equal(source.includes("userFacingErrorMessage(err, 'Could not save')"), false);
+  });
+
+  it('shows a saved pick only until the live task changes, then follows the live task', () => {
+    const saved = finishFieldSave(beginFieldSave('2026-11-02', null), true);
+    assert.equal(saved.draft, '2026-11-02');
+    // The live task still holds the old value: the pick stays on screen.
+    assert.equal(releaseFieldDraft(saved, null), saved);
+    // The save arrived on the live task.
+    assert.equal(releaseFieldDraft(saved, '2026-11-02').draft, undefined);
+    // Someone else changed the task in another window.
+    const released = releaseFieldDraft(saved, '2026-12-25');
+    assert.equal(released.draft, undefined);
+    assert.equal(released.error, null);
+    // Once dropped it does not come back when the task returns to the old value.
+    assert.equal(releaseFieldDraft(released, null).draft, undefined);
+  });
+
+  it('keeps a fixture pick, where no live task can change', () => {
+    const saved = finishFieldSave(beginFieldSave('2026-11-02'), true);
+    assert.equal('from' in saved, false);
+    assert.equal(releaseFieldDraft(saved, 'anything'), saved);
+    assert.equal(releaseFieldDraft(idleField<string>(), 'anything').draft, undefined);
   });
 });

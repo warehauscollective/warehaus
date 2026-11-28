@@ -52,6 +52,17 @@ export function clientMilestoneEmptyKind(project: {
   return 'none-shared';
 }
 
+/**
+ * The remembered list is for one project. Another project never shows it
+ * while its own list loads or fails.
+ */
+export function heldMilestonesFor<T>(
+  held: { projectId: string; rows: readonly T[] } | null,
+  projectId: string,
+): readonly T[] {
+  return held && held.projectId === projectId ? held.rows : [];
+}
+
 export function milestonesAfterQuery<T>(input: {
   data: readonly T[] | undefined;
   error: string | null;

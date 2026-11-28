@@ -47,6 +47,15 @@ export function tasksWithOpened<T extends { id: string }>(tasks: T[], opened: T 
   return extra.length === 0 ? tasks : [...tasks, ...extra];
 }
 
+/**
+ * The opened task follows its live rows. The held list is replaced only when
+ * a row differs, so an unchanged list does not render the page again.
+ */
+export function refreshedOpened<T>(held: readonly T[] | null, next: readonly T[]): T[] {
+  if (held && JSON.stringify(held) === JSON.stringify(next)) return held as T[];
+  return [...next];
+}
+
 export function resolveBoardRoute(input: {
   pathname: string;
   tasks: readonly { id: string; projectId?: string | null }[];

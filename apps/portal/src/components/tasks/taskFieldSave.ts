@@ -9,6 +9,8 @@ export type FieldAttempt<T> = {
   draft: T | undefined;
   error: string | null;
   pending: T | undefined;
+  /** The live value's key when the attempt began. Absent in fixture previews, where nothing else writes. */
+  from?: string | null;
 };
 
 export function idleField<T>(): FieldAttempt<T> {
@@ -16,13 +18,15 @@ export function idleField<T>(): FieldAttempt<T> {
 }
 
 /** Optimistic value. The previous error goes away until this attempt settles. */
-export function beginFieldSave<T>(pending: T): FieldAttempt<T> {
-  return { draft: pending, error: null, pending };
+export function beginFieldSave<T>(pending: T, from?: string | null): FieldAttempt<T> {
+  return { draft: pending, error: null, pending, ...(from !== undefined ? { from } : {}) };
 }
 
 /** A failure drops the optimistic value and keeps the attempt for Retry. */
 export function finishFieldSave<T>(current: FieldAttempt<T>, ok: boolean): FieldAttempt<T> {
-  if (ok) return { draft: current.draft, error: null, pending: undefined };
+  if (ok) {
+    return { draft: current.draft, error: null, pending: undefined, ...(current.from !== undefined ? { from: current.from } : {}) };
+  }
   return { draft: undefined, error: FIELD_SAVE_ERROR, pending: current.pending };
 }
 
@@ -31,4 +35,14 @@ export function retryFieldSave<T>(slot: FieldAttempt<T>, save: (pending: T) => v
   if (slot.pending === undefined) return false;
   save(slot.pending);
   return true;
+}
+
+/**
+ * The optimistic value holds only while the live value is still the one the
+ * attempt began with. Once the live value changes, by this save or by anyone
+ * else, the draft is dropped and the field shows the live value.
+ */
+export function releaseFieldDraft<T>(slot: FieldAttempt<T>, live: string | null): FieldAttempt<T> {
+  if (slot.draft === undefined || slot.from === undefined || slot.from === live) return slot;
+  return { ...slot, draft: undefined };
 }

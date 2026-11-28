@@ -193,6 +193,27 @@ export function milestoneNestedToOpen(input: Parameters<typeof milestoneTaskToOp
 }
 
 /**
+ * The live copy of a task the modal has open, when it is on this milestone:
+ * its top-level row first, then that row's child tasks. Null when the task is
+ * not on this milestone. The page keeps this in step with the milestone list,
+ * so the open modal shows changes made elsewhere.
+ */
+export function milestoneOpenedTasks(input: Parameters<typeof milestoneTaskToOpen>[0]): PortalTask[] | null {
+  const parent = input.milestone.rows.find(
+    (row) => row.id === input.taskId || row.children.some((child) => child.id === input.taskId),
+  );
+  if (!parent) return null;
+  const top = milestoneTaskToOpen({ ...input, taskId: parent.id });
+  if (!top) return null;
+  const nested = milestoneNestedToOpen({ ...input, taskId: parent.id });
+  if (parent.id === input.taskId) return [top, ...nested];
+  // A child the page files under another parent is still the open task.
+  const open = milestoneTaskToOpen(input);
+  const listed = nested.some((task) => task.id === input.taskId);
+  return [top, ...nested, ...(open && !listed ? [open] : [])];
+}
+
+/**
  * The milestone's full task order after To Do is reordered. Each To Do row's
  * place takes the next id from the new To Do order. Every other row keeps its
  * place, so the saved order still names every row once. Null when the new

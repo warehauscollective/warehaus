@@ -19,6 +19,7 @@ import {
   milestoneBoardCards,
   milestoneCardOrigins,
   milestoneNestedToOpen,
+  milestoneOpenedTasks,
   pullRequestChip,
   milestoneBoardReadOnly,
   milestoneBoardStatus,
@@ -616,6 +617,28 @@ describe('card face', () => {
     ]);
     assert.deepEqual(milestoneNestedToOpen({ ...input, taskId: 'a' }), []);
     assert.deepEqual(milestoneNestedToOpen({ ...input, taskId: 'b1' }), []);
+  });
+
+  it('rebuilds the open task from the live rows, so the modal follows a change made elsewhere', () => {
+    const input = { milestone: { id: 'm-board', rows: list }, tasks: [] as PortalTask[], project };
+    const ids = (rows: PortalTask[] | null) => rows?.map((task) => task.id) ?? null;
+    assert.deepEqual(ids(milestoneOpenedTasks({ ...input, taskId: 'b' })), ['b', 'b1', 'b2']);
+    // An open child task still brings its parent and the parent's other child tasks.
+    assert.deepEqual(ids(milestoneOpenedTasks({ ...input, taskId: 'b2' })), ['b', 'b1', 'b2']);
+    assert.equal(milestoneOpenedTasks({ ...input, taskId: 'not-on-this-milestone' }), null);
+
+    // The same task after someone else finished it: the copy carries the new row.
+    const before = milestoneOpenedTasks({ ...input, taskId: 'b' })?.find((task) => task.id === 'b2');
+    const moved = list.map((row) => ({
+      ...row,
+      children: row.children.map((child) => (child.id === 'b2' ? { ...child, status: 'Done', isDone: true } : child)),
+    }));
+    const after = milestoneOpenedTasks({ ...input, milestone: { id: 'm-board', rows: moved }, taskId: 'b' })?.find(
+      (task) => task.id === 'b2',
+    );
+    assert.equal(before?.isDone, false);
+    assert.equal(after?.isDone, true);
+    assert.equal(after?.status, 'Done');
   });
 });
 

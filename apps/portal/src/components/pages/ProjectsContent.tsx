@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useLayoutEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { ProjectRoadmap } from '@/components/projects/ProjectRoadmap';
 import { resourcesForProject } from '@/components/projects/milestoneGuards';
@@ -64,7 +64,7 @@ import { isProjectDetailPath, leaveProjectDetail, projectStateAfterNav } from '@
 import { keepProjectWhileLoading, readTaskListView } from '@/lib/nav/taskListLocation';
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
 import { clearPortalReturn, peekPortalReturn, takePortalReturn, taskCloseLabel } from '@/lib/nav/portalReturn';
-import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute, tasksWithOpened } from '@/lib/nav/boardRoute';
+import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, refreshedOpened, resolveBoardRoute, tasksWithOpened } from '@/lib/nav/boardRoute';
 import { DocsBlock } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
 import { useFixtureCreatePreview, useWritebackEnabled } from '@/hooks/useWritebackEnabled';
@@ -136,8 +136,12 @@ export function ProjectsContent() {
   const { view, ready: viewReady, change: setView } = listView;
   // A task opened from a milestone card, with its nested child tasks, that the
   // page's own list may not hold. Only the task route and the task modal read
-  // it. Lists and counts do not.
+  // it. Lists and counts do not. While the modal is open the milestone sends
+  // the live rows again on every change, so this is never an old copy.
   const [openedTask, setOpenedTask] = useState<PortalTask[] | null>(null);
+  const refreshOpenedTask = useCallback((rows: PortalTask[]) => {
+    setOpenedTask((current) => refreshedOpened(current, rows));
+  }, []);
   const modalTasks = useMemo(() => tasksWithOpened(tasks, openedTask), [tasks, openedTask]);
   const [taskView, setTaskView] = useState<'board' | 'table'>('board');
   const [fixtureTaskId, setFixtureTaskId] = useState<string | null>(null);
@@ -458,6 +462,8 @@ export function ProjectsContent() {
               activityError={activityFeed.error}
               onBackToProjects={closeProject}
               onOpenTask={openTask}
+              openTaskId={routeTaskId}
+              onOpenTaskLive={refreshOpenedTask}
               resourceChoices={isStaff ? resourceChoices : []}
               resourcesExtra={
                 <DocsBlock docs={projectDocs} staff={isStaff} loading={projectsLoading && projectDocs.length === 0} />
