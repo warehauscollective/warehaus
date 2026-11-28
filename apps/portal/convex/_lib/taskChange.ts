@@ -7,6 +7,10 @@
  *   rules, a dead or conflicting earlier write. A refusal writes nothing.
  * - then saves the row once: every changed field, its stamp, and for a stage
  *   move the pending stage.
+ * - a status change that takes the task out of Blocked, or to Done, also
+ *   releases the runner: the claim and blocked reason go in the same write and
+ *   the blocked Asks on the task close, as Retry does. Any other move keeps
+ *   the claim, so a task a run still holds is not handed out twice.
  * - then, when the task has a Notion page and the write policy allows
  *   write-back, queues one outbox row per write kind.
  *
@@ -38,8 +42,9 @@ import type { Doc, Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { findOutboxRow, insertOutboxRow } from '../sync/outbox';
 import { writebackAllowed } from '../sync/notion';
+import { closeAsksOnMilestone } from './askStore';
 import { syncDesignAsk } from './designGateStore';
-import { isPortalOwnedTask } from './milestoneTasks';
+import { isBlockedTask, isPortalOwnedTask } from './milestoneTasks';
 
 export type TaskChange =
   | { field: 'status'; status: string }
@@ -186,6 +191,7 @@ export async function applyTaskChanges(
   const liveFields: { estimate?: string | null; priority?: string | null; source?: string | null; publishToWarehaus?: boolean; nextAction?: string | null } = {};
   let stageMove: { stage: string; pullRequestLink: string | null; key: string } | null = null;
   let assigneeName: string | null | undefined;
+  let releasesRunner = false;
 
   for (const change of changes) {
     switch (change.field) {
@@ -199,6 +205,13 @@ export async function applyTaskChanges(
         patch.status = change.status;
         patch.isDone = isDone;
         stamped.push('status');
+        // Out of Blocked, or Done: the runner no longer holds this task.
+        if (isDone || (isBlockedTask(task) && !isBlockedTask({ status: change.status, isDone }))) {
+          releasesRunner = true;
+          patch.claimedBy = undefined;
+          patch.claimedAt = undefined;
+          patch.blockedReason = undefined;
+        }
         writes.push({
           kind: 'task-status',
           properties: { Status: change.status },
@@ -418,6 +431,10 @@ export async function applyTaskChanges(
       actorId: options.actorId,
     });
     outboxIds.push(row.outboxId);
+  }
+
+  if (releasesRunner && task.milestoneId) {
+    await closeAsksOnMilestone(ctx, task.milestoneId, (ask) => ask.reason === 'blocked' && ask.taskId === task._id);
   }
 
   // A design task finished or reopened by hand moves the Approve designs Ask too.

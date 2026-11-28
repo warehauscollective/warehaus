@@ -81,7 +81,7 @@ _Avoid_: pending release, unreleased
 ## Tasks
 
 **Task change**:
-An edit to one or more fields of one task by staff, the staff API, a merged pull request, or closeout. A task change is saved in the portal at once and holds against any older Notion edit. When the task has a Notion page and write-back is allowed, it is also written back; otherwise it stays in the portal and says so. A task change is checked whole: every field is saved, or none.
+An edit to one or more fields of one task by staff, the staff API, a merged pull request, or closeout. A task change is saved in the portal at once and holds against any older Notion edit. When the task has a Notion page and write-back is allowed, it is also written back; otherwise it stays in the portal and says so. A task change is checked whole: every field is saved, or none. A status change that takes the task out of Blocked, or to Done, also releases the runner: its claim and blocked reason are cleared and the blocked Asks on that task close.
 _Avoid_: task update, field save, task write, move
 
 **Task kind**:
